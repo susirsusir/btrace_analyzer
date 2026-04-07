@@ -209,6 +209,12 @@ When analyzing the output, focus on:
 - **Animation overhead**: Choreographer/VSync callbacks with heavy work
 - **Logging overhead**: File-based logging in hot paths
 
+## Execution Constraints
+
+- NEVER create temporary scripts or files in the user's workspace directory. Use inline Python (`python3 -c "..."` or `python3 << 'EOF'`) or write temporary files to `/tmp/` only.
+- All intermediate files (downloaded traces, parsed JSON mappings, etc.) should go to `/tmp/`.
+- After analysis is complete, there should be zero artifacts left in the workspace.
+
 ## Notes
 
 - The sampling interval is typically 25ms (25000μs), meaning each sample represents ~25ms of execution time
