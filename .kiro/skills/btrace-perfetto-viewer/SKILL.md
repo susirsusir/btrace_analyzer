@@ -210,7 +210,13 @@ IMPORTANT:
 
 #### 6.6 Generate analysis report
 
-Create a markdown report file at `trace-analysis/report.md` in the workspace. The report MUST include:
+Each analysis session gets its own directory under `trace-analysis/` to support multiple analyses without overwriting previous results.
+
+**Directory naming**: `trace-analysis/<traceID>/` where `<traceID>` is extracted from the trace URL. For example, URL `https://cfile.jiaoliuqu.com/xtrace_bgigfacajbjdbcbh_toutiao70_8581_.../sampling` produces directory `trace-analysis/xtrace_bgigfacajbjdbcbh_toutiao70_8581_...`.
+
+If the traceID cannot be extracted, use a timestamp: `trace-analysis/analysis_YYYYMMDD_HHmmss/`.
+
+Create the report at `trace-analysis/<traceID>/report.md` with all screenshots saved in the same directory. The report MUST include:
 
 ```markdown
 # BTrace Performance Analysis Report
@@ -243,13 +249,13 @@ Create a markdown report file at `trace-analysis/report.md` in the workspace. Th
 ```
 
 Rules for the report:
-- Create the `trace-analysis/` directory in the workspace root
-- Save all screenshots into `trace-analysis/`
+- Create `trace-analysis/<traceID>/` directory for each analysis session
+- Save all screenshots into the same `trace-analysis/<traceID>/` directory
 - Use relative paths for images in the markdown so they render on GitHub
 - Order issues strictly by severity (P0 first, P3 last)
 - Include a full timeline overview screenshot at the end
 - If no significant issues are found, state the trace is healthy with a summary screenshot
-- Add `trace-analysis/` to `.gitignore` since reports contain local analysis artifacts
+- `trace-analysis/` is already in `.gitignore` since reports contain local analysis artifacts
 
 ### Step 7: Cleanup
 
