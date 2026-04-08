@@ -17,7 +17,8 @@
         "take_screenshot",
         "close_page",
         "type_text",
-        "press_key"
+        "press_key",
+        "navigate_page"
       ]
     }
   }

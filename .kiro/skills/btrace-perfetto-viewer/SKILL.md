@@ -307,6 +307,19 @@ Rules for the report:
 - If no significant issues are found, state the trace is healthy with a summary screenshot
 - `trace-analysis/` is already in `.gitignore` since reports contain local analysis artifacts
 
+**Method name interpretation rules** — BTrace mapping files restore obfuscated names, but some patterns still need human-readable annotation in the report:
+
+| Pattern in trace | Meaning | How to annotate in report |
+|---|---|---|
+| `ClassName$methodName$1$2.invokeSuspend()` | Kotlin coroutine lambda: 2nd nested lambda inside `methodName` | Add comment: `← Kotlin lambda in ClassName.methodName()` |
+| `ClassName$methodName$1.invokeSuspend()` | Kotlin suspend lambda / coroutine continuation | Add comment: `← coroutine continuation of ClassName.methodName()` |
+| `ClassName$propertyName$2.invoke()` | Kotlin lazy property initializer for `propertyName` | Add comment: `← lazy init of ClassName.propertyName` |
+| `ClassName$1.run()` | Anonymous Runnable/Thread defined in ClassName | Add comment: `← anonymous Runnable in ClassName` |
+| `ClassName.a3()` / `.v3()` / `.F3()` | ProGuard-obfuscated method name (single letter + digit) | Note as `← obfuscated method (ProGuard)`, do NOT guess original name |
+| `msdocker.*` / `Ill111l` / `illi` | Security/plugin framework internals (DroidPlugin + string encryption) | Describe as `← DroidPlugin hook / string decryption` |
+
+When writing call stacks in the report, always annotate Kotlin-generated class names with their semantic meaning using `←` comments so readers understand what the synthetic class represents.
+
 ### Step 7: Cleanup
 
 After analysis is complete, stop the HTTP server background process using `controlBashProcess` with action "stop".
