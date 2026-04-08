@@ -10,8 +10,16 @@ This skill converts BTrace/xTrace sampling trace files to Perfetto protobuf form
 ## Prerequisites
 
 - Java 8+ installed and available in PATH
-- `btrace.jar` located at `~/.btrace-analyzer/btrace.jar`
+- `btrace.jar` — the BTrace trace processor JAR (user must configure the path)
 - `chrome-devtools-mcp` configured in `.kiro/settings/mcp.json`
+
+## Configuration
+
+Before first use, ask the user for:
+1. **BTRACE_JAR_PATH** — path to `btrace.jar` (e.g., `~/.btrace-analyzer/btrace.jar`)
+2. **APP_PACKAGE_NAME** — the Android application package name (e.g., `com.example.myapp`)
+
+If the user doesn't provide these, check if `~/.btrace-analyzer/btrace.jar` exists as a default. For the package name, try to extract it from the trace URL pattern or ask the user.
 
 ## Workflow
 
@@ -21,9 +29,12 @@ Download both files to `/tmp/btrace_work/`:
 
 ```bash
 mkdir -p /tmp/btrace_work
-curl -L -o /tmp/btrace_work/sampling.bin "<trace_url>/sampling"
-curl -L -o /tmp/btrace_work/sampling-mapping.bin "<trace_url>/sampling-mapping"
+curl -L -o /tmp/btrace_work/sampling.bin "<trace_url>"
+curl -L -o /tmp/btrace_work/sampling-mapping.bin "<trace_url>-mapping"
 ```
+
+If the trace URL already ends with `/sampling`, the mapping URL is `<trace_url>-mapping`.
+If the user provides a base directory URL, append `/sampling` and `/sampling-mapping`.
 
 IMPORTANT: The mapping file MUST be named `sampling-mapping.bin` (matching the main file name with `-mapping` suffix). `btrace.jar` derives the mapping path from the main file name.
 
@@ -32,15 +43,17 @@ IMPORTANT: The mapping file MUST be named `sampling-mapping.bin` (matching the m
 Use `btrace.jar` to convert:
 
 ```bash
-java -jar ~/.btrace-analyzer/btrace.jar \
+java -jar <BTRACE_JAR_PATH> \
   -onlyDecode \
-  -a com.xingjiabi.shengsheng \
+  -a <APP_PACKAGE_NAME> \
   -t 10 \
   -mode perfetto \
   -o /tmp/btrace_work/sampling.pb \
   /tmp/btrace_work/sampling.bin \
   /tmp/btrace_work/sampling-mapping.bin
 ```
+
+Replace `<BTRACE_JAR_PATH>` and `<APP_PACKAGE_NAME>` with the user's configured values.
 
 Expected output should end with `writing trace:/tmp/btrace_work/sampling.pb`. The resulting `.pb` file is typically 80-100MB.
 

@@ -18,6 +18,21 @@ This project provides a [Kiro Agent Skill](https://kiro.dev/docs/skills/) that t
 - Analyze inclusive time (methods anywhere in call stack)
 - Identify hot call stacks (most frequently sampled execution paths)
 - Provide actionable performance optimization suggestions
+- Convert to Perfetto protobuf and open in Perfetto UI for visual analysis (requires `btrace.jar`)
+
+## Environment Setup
+
+The Perfetto viewer skill (`btrace-perfetto-viewer`) requires external tools that are NOT included in this repository:
+
+| Dependency | Description | How to obtain |
+|------------|-------------|---------------|
+| Java 8+ | Runtime for btrace.jar | Install via your package manager |
+| `btrace.jar` | Converts BTrace binary to Perfetto protobuf | Provided by your APM SDK or team toolchain |
+| `chrome-devtools-mcp` | MCP server for browser control | `npx -y chrome-devtools-mcp@latest` |
+
+After obtaining `btrace.jar`, place it in a known location (e.g., `~/.btrace-analyzer/btrace.jar`). The skill will ask for the path on first use.
+
+The text analysis skill (`btrace-analyzer`) has no external dependencies — it parses the binary format directly with inline Python.
 
 ## File Format
 
