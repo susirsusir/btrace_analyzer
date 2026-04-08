@@ -9,7 +9,13 @@
       "disabled": false,
       "autoApprove": [
         "new_page",
-        "list_pages"
+        "list_pages",
+        "evaluate_script",
+        "wait_for",
+        "click",
+        "take_snapshot",
+        "take_screenshot",
+        "close_page"
       ]
     }
   }
