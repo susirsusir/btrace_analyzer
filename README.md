@@ -8,7 +8,12 @@ A Kiro AI skill for analyzing BTrace/xTrace Android performance sampling trace f
 
 BTrace/xTrace is a custom binary sampling trace format used by some Android performance monitoring SDKs (e.g., `BTraceMonitor`). These files are **not** standard Perfetto/systrace format and cannot be loaded in Perfetto UI directly.
 
-This project provides a [Kiro Agent Skill](https://kiro.dev/docs/skills/) that teaches Kiro how to parse and analyze these trace files automatically.
+This project provides two [Kiro Agent Skills](https://kiro.dev/docs/skills/) for analyzing these trace files:
+
+| Skill | Description | Dependencies |
+|-------|-------------|--------------|
+| `btrace-analyzer` | Text-based analysis — parses binary directly, outputs CPU hotspots and hot call stacks | None (inline Python) |
+| `btrace-perfetto-viewer` | Visual analysis — converts to Perfetto protobuf, opens in Perfetto UI, runs SQL diagnostics, generates report with screenshots | Java 8+, `btrace.jar`, `chrome-devtools-mcp` |
 
 ## Features
 
@@ -121,9 +126,9 @@ git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/
 
 ## Usage
 
-Once installed, Kiro automatically activates this skill when you mention btrace, xtrace, or sampling trace analysis in chat.
+### Text Analysis (btrace-analyzer)
 
-Example prompt:
+For quick CPU hotspot analysis without external dependencies:
 
 ```
 Analyze this BTrace trace file:
@@ -131,19 +136,53 @@ Analyze this BTrace trace file:
 - Mapping: https://example.com/path/to/sampling-mapping
 ```
 
+Kiro will parse the binary format directly and output self time, inclusive time, and hot call stacks.
+
+### Visual Analysis (btrace-perfetto-viewer)
+
+For visual timeline analysis with Perfetto UI:
+
+```
+Visually analyze this trace in Perfetto:
+- Trace: https://example.com/path/to/sampling
+- Mapping: https://example.com/path/to/sampling-mapping
+```
+
 Kiro will:
 1. Download the trace and mapping files
-2. Parse the binary formats
-3. Generate a performance analysis report with CPU hotspots and hot call stacks
-4. Provide optimization suggestions
+2. Convert to Perfetto protobuf via `btrace.jar`
+3. Open Perfetto UI in the MCP-controlled browser
+4. Run SQL diagnostic queries (long slices, frame jank, lock contention, I/O on main thread)
+5. Navigate to each issue's exact time range and take screenshots
+6. Generate a prioritized report at `trace-analysis/<traceID>/report.md`
 
 ## Analysis Output
 
-The skill produces three key reports:
+### Text Analysis
+
+Three key reports printed in chat:
 
 - **Self Time**: Methods directly on top of the stack (consuming CPU)
 - **Inclusive Time**: Methods appearing anywhere in the call stack
 - **Hot Call Stacks**: Most frequently sampled call paths (top 5 frames)
+
+### Visual Analysis
+
+A markdown report with screenshots saved to `trace-analysis/<traceID>/`:
+
+```
+trace-analysis/
+└── xtrace_abc123_huawei/
+    ├── report.md
+    ├── screenshot_overview.png
+    ├── screenshot_1_ishumei.png
+    ├── screenshot_2_monitor_lock.png
+    └── ...
+```
+
+Each issue in the report includes severity (P0-P3), description, affected method, duration, impact, optimization suggestion, and a Perfetto timeline screenshot zoomed to the exact time range.
+
+Multiple analyses are stored in separate subdirectories and never overwrite each other.
 
 ## Common Performance Patterns
 

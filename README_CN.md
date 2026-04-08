@@ -8,7 +8,12 @@
 
 BTrace/xTrace 是部分 Android 性能监控 SDK（如 `BTraceMonitor`）使用的自定义二进制采样 trace 格式。这些文件**不是**标准的 Perfetto/systrace 格式，无法直接在 Perfetto UI 中加载。
 
-本项目提供了一个 [Kiro Agent Skill](https://kiro.dev/docs/skills/)，让 Kiro 能够自动解析和分析这类 trace 文件。
+本项目提供两个 [Kiro Agent Skill](https://kiro.dev/docs/skills/) 用于分析这类 trace 文件：
+
+| 技能 | 说明 | 依赖 |
+|------|------|------|
+| `btrace-analyzer` | 文本分析 — 直接解析二进制，输出 CPU 热点和热调用栈 | 无（内联 Python） |
+| `btrace-perfetto-viewer` | 可视化分析 — 转换为 Perfetto protobuf，在 Perfetto UI 中打开，运行 SQL 诊断，生成带截图的报告 | Java 8+、`btrace.jar`、`chrome-devtools-mcp` |
 
 ## 功能特性
 
@@ -121,9 +126,9 @@ git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/
 
 ## 使用方法
 
-安装后，在聊天中提到 btrace、xtrace 或采样 trace 分析时，Kiro 会自动激活此技能。
+### 文本分析（btrace-analyzer）
 
-示例提示词：
+快速 CPU 热点分析，无需外部依赖：
 
 ```
 分析这个 BTrace trace 文件：
@@ -131,19 +136,53 @@ git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/
 - Mapping 文件：https://example.com/path/to/sampling-mapping
 ```
 
+Kiro 会直接解析二进制格式，输出 self time、inclusive time 和热调用栈。
+
+### 可视化分析（btrace-perfetto-viewer）
+
+在 Perfetto UI 中进行可视化时间线分析：
+
+```
+可视化分析这个 trace 文件：
+- Trace 文件：https://example.com/path/to/sampling
+- Mapping 文件：https://example.com/path/to/sampling-mapping
+```
+
 Kiro 会自动：
 1. 下载 trace 和 mapping 文件
-2. 解析二进制格式
-3. 生成包含 CPU 热点和热调用栈的性能分析报告
-4. 提供优化建议
+2. 通过 `btrace.jar` 转换为 Perfetto protobuf 格式
+3. 在 MCP 控制的浏览器中打开 Perfetto UI
+4. 运行 SQL 诊断查询（长耗时 slice、帧卡顿、锁竞争、主线程 I/O）
+5. 跳转到每个问题的精确时间范围并截图
+6. 生成按优先级排序的报告到 `trace-analysis/<traceID>/report.md`
 
 ## 分析输出
 
-技能会生成三类关键报告：
+### 文本分析
+
+在聊天中输出三类关键报告：
 
 - **Self Time**：直接位于栈顶的方法（正在消耗 CPU）
 - **Inclusive Time**：出现在调用栈任意位置的方法
 - **热调用栈**：最频繁采样的调用路径（前 5 帧）
+
+### 可视化分析
+
+生成带截图的 Markdown 报告，保存到 `trace-analysis/<traceID>/`：
+
+```
+trace-analysis/
+└── xtrace_abc123_huawei/
+    ├── report.md
+    ├── screenshot_overview.png
+    ├── screenshot_1_ishumei.png
+    ├── screenshot_2_monitor_lock.png
+    └── ...
+```
+
+报告中每个问题包含严重等级（P0-P3）、问题描述、涉及方法、耗时、影响、优化建议，以及缩放到精确时间范围的 Perfetto 时间线截图。
+
+多次分析存放在独立子目录中，互不覆盖。
 
 ## 常见性能模式
 
