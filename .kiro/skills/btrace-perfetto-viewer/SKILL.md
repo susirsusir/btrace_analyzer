@@ -116,7 +116,91 @@ After the page loads, the URL should change to `#!/viewer?local_cache_key=...` i
 - Use Perfetto's SQL query mode for programmatic analysis
 - Navigate the timeline using MCP click/scroll tools
 
-### Step 6: Cleanup
+### Step 6: Analyze and diagnose issues
+
+After the trace is loaded in Perfetto, perform a systematic analysis to identify performance issues. Use Perfetto's SQL query mode (click the search bar and type `:` to enter SQL mode) to run diagnostic queries.
+
+#### 6.1 Identify long-running slices on the main thread
+
+```sql
+SELECT s.name, s.dur / 1000000.0 AS dur_ms, s.ts
+FROM slice s
+JOIN thread_track tt ON s.track_id = tt.id
+JOIN thread t ON tt.utid = t.utid
+WHERE t.name = 'main' OR t.tid = (SELECT pid FROM process LIMIT 1)
+ORDER BY s.dur DESC
+LIMIT 30
+```
+
+#### 6.2 Find frame jank (frames exceeding 16.6ms)
+
+```sql
+SELECT s.name, s.dur / 1000000.0 AS dur_ms, s.ts
+FROM slice s
+JOIN thread_track tt ON s.track_id = tt.id
+JOIN thread t ON tt.utid = t.utid
+WHERE (t.name = 'main' OR t.is_main_thread = 1)
+  AND s.name LIKE '%doFrame%' OR s.name LIKE '%Choreographer%' OR s.name LIKE '%traversal%'
+  AND s.dur > 16600000
+ORDER BY s.dur DESC
+LIMIT 20
+```
+
+#### 6.3 Identify CPU-heavy methods
+
+```sql
+SELECT s.name, COUNT(*) AS count, SUM(s.dur) / 1000000.0 AS total_ms, AVG(s.dur) / 1000000.0 AS avg_ms
+FROM slice s
+GROUP BY s.name
+HAVING count > 5
+ORDER BY total_ms DESC
+LIMIT 30
+```
+
+#### 6.4 Check for I/O on main thread
+
+```sql
+SELECT s.name, s.dur / 1000000.0 AS dur_ms
+FROM slice s
+JOIN thread_track tt ON s.track_id = tt.id
+JOIN thread t ON tt.utid = t.utid
+WHERE (t.name = 'main' OR t.is_main_thread = 1)
+  AND (s.name LIKE '%Binder%' OR s.name LIKE '%sqlite%' OR s.name LIKE '%SharedPreferences%'
+       OR s.name LIKE '%File%' OR s.name LIKE '%network%' OR s.name LIKE '%http%')
+ORDER BY s.dur DESC
+LIMIT 20
+```
+
+#### 6.5 Take a screenshot for visual context
+
+After running queries, take a screenshot of the Perfetto timeline to include in the report.
+
+#### 6.6 Compile the analysis report
+
+Present findings to the user as a prioritized list, ordered by severity (most impactful first):
+
+**Priority criteria** (highest to lowest):
+1. **ANR risk** — any single operation > 5000ms on main thread
+2. **Frame drops** — Choreographer/doFrame/traversal exceeding 16.6ms, causing visible jank
+3. **Main thread blocking** — I/O, Binder calls, database operations on main thread
+4. **CPU hotspots** — methods with high total or average execution time
+5. **Thread contention** — lock waits, synchronized blocks causing delays
+6. **Memory pressure** — GC pauses, large allocations in hot paths
+7. **Inefficient patterns** — reflection, JSON serialization, excessive logging in hot paths
+
+**Report format:**
+
+For each issue found, provide:
+- Severity level (P0-Critical / P1-High / P2-Medium / P3-Low)
+- What: brief description of the problem
+- Where: the specific method/call stack
+- Duration/frequency: how long and how often it occurs
+- Impact: what the user would experience (jank, ANR, slow startup, etc.)
+- Suggestion: concrete optimization recommendation
+
+If no significant issues are found, state that the trace looks healthy and mention any minor observations.
+
+### Step 7: Cleanup
 
 After analysis is complete, stop the HTTP server background process using `controlBashProcess` with action "stop".
 
