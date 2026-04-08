@@ -1,0 +1,4 @@
+{
+  "btrace_jar_path": "~/.btrace-analyzer/btrace.jar",
+  "app_package_name": "com.example.myapp"
+}

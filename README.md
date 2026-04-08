@@ -34,6 +34,30 @@ After obtaining `btrace.jar`, place it in a known location (e.g., `~/.btrace-ana
 
 The text analysis skill (`btrace-analyzer`) has no external dependencies — it parses the binary format directly with inline Python.
 
+## Configuration
+
+Copy the example config file and fill in your values:
+
+```bash
+cp config.local.json.example config.local.json
+```
+
+Edit `config.local.json`:
+
+```json
+{
+  "btrace_jar_path": "~/.btrace-analyzer/btrace.jar",
+  "app_package_name": "com.example.myapp"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `btrace_jar_path` | Absolute or `~`-relative path to your `btrace.jar` |
+| `app_package_name` | Your Android app's package name |
+
+This file is git-ignored and will not be committed.
+
 ## File Format
 
 ### Trace File (`sampling`)

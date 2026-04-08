@@ -15,11 +15,24 @@ This skill converts BTrace/xTrace sampling trace files to Perfetto protobuf form
 
 ## Configuration
 
-Before first use, ask the user for:
-1. **BTRACE_JAR_PATH** — path to `btrace.jar` (e.g., `~/.btrace-analyzer/btrace.jar`)
-2. **APP_PACKAGE_NAME** — the Android application package name (e.g., `com.example.myapp`)
+The skill reads configuration from `config.local.json` in the workspace root:
 
-If the user doesn't provide these, check if `~/.btrace-analyzer/btrace.jar` exists as a default. For the package name, try to extract it from the trace URL pattern or ask the user.
+```json
+{
+  "btrace_jar_path": "~/.btrace-analyzer/btrace.jar",
+  "app_package_name": "com.example.myapp"
+}
+```
+
+Before first use, copy `config.local.json.example` to `config.local.json` and fill in your values. This file is git-ignored.
+
+To read the config, use:
+
+```bash
+cat config.local.json
+```
+
+Then extract `btrace_jar_path` and `app_package_name` from the JSON. If the file doesn't exist, ask the user to create it from the example.
 
 ## Workflow
 
