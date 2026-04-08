@@ -173,25 +173,40 @@ LIMIT 20
 
 #### 6.5 Take screenshots for each issue
 
-For each identified issue, navigate to the relevant time range in Perfetto and capture a screenshot:
+For each identified issue, use the SQL query results (ts and dur) to navigate Perfetto's timeline to the exact time range, then capture a screenshot.
 
-1. Use Perfetto's search or SQL to locate the problematic slice/time range
-2. Use MCP `evaluate_script` to zoom the timeline to the relevant time window:
-   ```javascript
-   // Zoom to a specific time range (ts and dur from SQL query results, in nanoseconds)
-   () => {
-     const viewer = document.querySelector('.pf-viewer-page');
-     // Use keyboard shortcuts: W to zoom in, S to zoom out, A/D to pan
-   }
-   ```
-3. Alternatively, use MCP `press_key` with 'W' (zoom in), 'S' (zoom out), 'A' (pan left), 'D' (pan right) to navigate to the right view
-4. Use MCP `take_screenshot` to capture the current view
-5. Save screenshots to the workspace: `take_screenshot` with `filePath` set to `<workspace>/trace-analysis/screenshot_<issue_number>.png`
+**Navigation method** — Use `evaluate_script` to call Perfetto's internal timeline API:
 
-IMPORTANT: Before taking screenshots, zoom to an appropriate level so the problematic slice is clearly visible:
-- For single long slices: zoom in until the slice fills roughly 50-70% of the viewport width
-- For repeated patterns: zoom out enough to show multiple occurrences
-- Always ensure method names in the flame chart are readable in the screenshot
+```javascript
+() => {
+  const vw = window.app.trace.timeline._visibleWindow;
+  const HPT = vw.start.constructor;   // HighPrecisionTime
+  const HPTS = vw.constructor;        // HighPrecisionTimeSpan
+  
+  // ts and dur from SQL query (nanoseconds, as BigInt)
+  const ts = <TS_VALUE>n;
+  const dur = <DUR_VALUE>n;
+  const padding = dur / 3n;  // 33% padding on each side
+  
+  const startTime = new HPT({ integral: ts - padding, fractional: 0 });
+  const totalDur = Number(dur + padding * 2n);
+  window.app.trace.timeline.setVisibleWindow(new HPTS(startTime, totalDur));
+  return 'navigated';
+}
+```
+
+Replace `<TS_VALUE>` and `<DUR_VALUE>` with the `ts` and `dur` values from the SQL query results (CAST AS TEXT to get the raw nanosecond values).
+
+**Steps for each issue:**
+1. Run SQL to get the longest/worst slice: `SELECT CAST(s.ts AS TEXT) as ts_str, CAST(s.dur AS TEXT) as dur_str FROM slice s WHERE s.name LIKE '%keyword%' ORDER BY s.dur DESC LIMIT 1`
+2. Use `evaluate_script` with the navigation code above to jump to that time range
+3. Wait 1 second for the timeline to render
+4. Use `take_screenshot` with `filePath` to save to `trace-analysis/screenshot_<N>_<name>.png`
+
+IMPORTANT:
+- Use `CAST(ts AS TEXT)` in SQL because ts/dur are int64 and need BigInt in JS
+- The padding (dur/3) ensures the slice is visible with context on both sides
+- Always wait at least 1 second after navigation before taking the screenshot
 
 #### 6.6 Generate analysis report
 

@@ -15,7 +15,9 @@
         "click",
         "take_snapshot",
         "take_screenshot",
-        "close_page"
+        "close_page",
+        "type_text",
+        "press_key"
       ]
     }
   }
