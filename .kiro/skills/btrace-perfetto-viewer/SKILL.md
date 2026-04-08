@@ -171,6 +171,50 @@ ORDER BY s.dur DESC
 LIMIT 20
 ```
 
+#### 6.5 Trace call stacks for each issue
+
+For each identified problem slice, walk up the `parent_id` chain to find the business code that triggered it. Use `evaluate_script` to run this in Perfetto's JS context:
+
+```javascript
+async () => {
+  const engine = window.app.trace.engine;
+  const traceStack = async (whereClause) => {
+    const q1 = await engine.query(
+      "SELECT CAST(id AS TEXT) as id, CAST(COALESCE(parent_id, -1) AS TEXT) as pid, name " +
+      "FROM slice WHERE " + whereClause + " ORDER BY dur DESC LIMIT 1"
+    );
+    let sliceId, parentId, name;
+    for (const it = q1.iter({id:'str', pid:'str', name:'str'}); it.valid(); it.next()) {
+      sliceId = it.id; parentId = it.pid; name = it.name;
+    }
+    if (!sliceId) return [];
+    const stack = [{name}];
+    let currentPid = parentId;
+    for (let i = 0; i < 25 && currentPid && currentPid !== '-1'; i++) {
+      const q = await engine.query(
+        "SELECT CAST(id AS TEXT) as id, CAST(COALESCE(parent_id,-1) AS TEXT) as pid, name " +
+        "FROM slice WHERE id = " + currentPid
+      );
+      let found = false;
+      for (const it = q.iter({id:'str', pid:'str', name:'str'}); it.valid(); it.next()) {
+        stack.push({name: it.name}); currentPid = it.pid; found = true;
+      }
+      if (!found) break;
+    }
+    return stack;
+  };
+  // Call for each issue:
+  return await traceStack("name LIKE '%keyword%'");
+}
+```
+
+IMPORTANT: Use `COALESCE(parent_id, -1)` because root slices have NULL parent_id.
+
+In the report, include the full call stack for each issue, highlighting:
+- The **root business caller** (the app-specific class that initiated the operation)
+- The **problematic method** (the one consuming the most time)
+- Any **intermediate framework/library calls** that connect them
+
 #### 6.5 Take screenshots for each issue
 
 For each identified issue, use the SQL query results (ts and dur) to navigate Perfetto's timeline to the exact time range, then capture a screenshot.
@@ -236,7 +280,13 @@ Create the report at `trace-analysis/<traceID>/report.md` with all screenshots s
 - **Where**: `com.example.ClassName.method()`
 - **Duration**: Xms (single) or Xms avg × N occurrences
 - **Impact**: What the user experiences
-- **Suggestion**: Concrete fix
+- **Call Stack**:
+  ```
+  com.example.BusinessClass.entryMethod()          ← business entry point
+    → com.library.SomeClass.intermediateCall()
+      → com.problematic.Class.slowMethod()          ← bottleneck
+  ```
+- **Suggestion**: Concrete fix referencing the specific class/method to modify
 
 ![Issue 1 - Description](screenshot_1.png)
 
