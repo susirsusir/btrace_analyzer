@@ -189,17 +189,24 @@ async function runAnalysisCore(tabId) {
   const filename = generateFilename();
 
   // ------------------------------------------------------------------
-  // Step 5: Save file via Downloads API
+  // Step 5: Save file via Downloads API (Data URI for MV3 Service Worker)
   // ------------------------------------------------------------------
   await sendProgress("saving_file", "正在保存报告文件...");
 
-  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-  const blobUrl = URL.createObjectURL(blob);
+  // In Manifest V3 Service Workers, URL.createObjectURL is not available.
+  // We use a base64 Data URI instead to download the markdown report.
+  const bytes = new TextEncoder().encode(markdown);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64Content = btoa(binary);
+  const dataUrl = `data:text/markdown;base64,${base64Content}`;
 
   try {
     const downloadId = await new Promise((resolve, reject) => {
       chrome.downloads.download(
-        { url: blobUrl, filename, saveAs: false },
+        { url: dataUrl, filename, saveAs: false },
         (id) => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
@@ -210,9 +217,6 @@ async function runAnalysisCore(tabId) {
       );
     });
 
-    // Clean up the blob URL after a short delay
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-
     try {
       await chrome.runtime.sendMessage({
         action: "complete",
@@ -222,7 +226,6 @@ async function runAnalysisCore(tabId) {
   } catch (downloadErr) {
     // Downloads API failed — notify popup with the error
     console.warn("Downloads API failed:", downloadErr);
-    URL.revokeObjectURL(blobUrl);
     try {
       await chrome.runtime.sendMessage({
         action: "error",
