@@ -132,6 +132,17 @@
     <div id="errorArea" role="alert">
       <span id="errorText"></span>
     </div>
+
+    <!-- New Area for Results -->
+    <div id="resultsArea" style="display: none; margin-top: 14px;">
+      <h2 style="font-size: 14px; margin-bottom: 8px;">分析结果</h2>
+      <ul id="problemList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto; margin-bottom: 12px; border: 1px solid #eee; border-radius: 6px;">
+        <!-- Items will be dynamically inserted here -->
+      </ul>
+      <button id="exportBtn" style="width: 100%; padding: 8px 16px; font-size: 13px; font-weight: 500; color: #4285f4; background: #fff; border: 1px solid #4285f4; border-radius: 6px; cursor: pointer; transition: all 0.2s;">
+        导出 MD 报告
+      </button>
+    </div>
   </div>
 
   <script src="popup.js"></script>

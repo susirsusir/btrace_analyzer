@@ -87,6 +87,8 @@ function classifyIssues(data) {
             : "轻微影响，建议关注",
       callStack: formatCallStack(stack),
       suggestion: `考虑将 \`${s.name}\` 的耗时操作移至后台线程，或优化其执行逻辑以减少耗时`,
+      ts: s.ts_str,
+      dur: s.dur_str
     });
   }
 
@@ -104,6 +106,8 @@ function classifyIssues(data) {
       impact: `帧渲染超时 ${(s.dur_ms / 16.6).toFixed(1)} 倍，用户可感知明显掉帧`,
       callStack: formatCallStack(stack),
       suggestion: `优化帧渲染流程，减少 \`${s.name}\` 中的同步操作，避免在 doFrame 中执行耗时任务`,
+      ts: s.ts_str,
+      dur: s.dur_str
     });
   }
 
@@ -122,6 +126,8 @@ function classifyIssues(data) {
       impact: "主线程 I/O 操作会阻塞 UI 渲染，导致卡顿和 ANR 风险",
       callStack: formatCallStack(stack),
       suggestion: `将 \`${s.name}\` 移至后台线程执行，使用异步 API 或 WorkManager 处理 I/O 操作`,
+      ts: s.ts_str,
+      dur: s.dur_str
     });
   }
 

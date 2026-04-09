@@ -173,7 +173,7 @@ async function runAnalysisCore(tabId) {
   }
 
   // ------------------------------------------------------------------
-  // Step 4: Generate report
+  // Step 4: Generate report data and issues list
   // ------------------------------------------------------------------
   await sendProgress("generating_report", "正在生成分析报告...");
 
@@ -185,54 +185,15 @@ async function runAnalysisCore(tabId) {
     callStacks,
   };
 
-  const markdown = generateReport(reportData);
-  const filename = generateFilename();
-
-  // ------------------------------------------------------------------
-  // Step 5: Save file via Downloads API (Data URI for MV3 Service Worker)
-  // ------------------------------------------------------------------
-  await sendProgress("saving_file", "正在保存报告文件...");
-
-  // In Manifest V3 Service Workers, URL.createObjectURL is not available.
-  // We use a base64 Data URI instead to download the markdown report.
-  const bytes = new TextEncoder().encode(markdown);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  const base64Content = btoa(binary);
-  const dataUrl = `data:text/markdown;base64,${base64Content}`;
+  const issues = classifyIssues(reportData);
 
   try {
-    const downloadId = await new Promise((resolve, reject) => {
-      chrome.downloads.download(
-        { url: dataUrl, filename, saveAs: false },
-        (id) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(id);
-          }
-        }
-      );
+    await chrome.runtime.sendMessage({
+      action: "complete",
+      issues: issues,
+      reportData: reportData
     });
-
-    try {
-      await chrome.runtime.sendMessage({
-        action: "complete",
-        filename,
-      });
-    } catch (_) { /* popup closed */ }
-  } catch (downloadErr) {
-    // Downloads API failed — notify popup with the error
-    console.warn("Downloads API failed:", downloadErr);
-    try {
-      await chrome.runtime.sendMessage({
-        action: "error",
-        message: `报告保存失败：${downloadErr.message}`,
-      });
-    } catch (_) { /* popup closed */ }
-  }
+  } catch (_) { /* popup closed */ }
 }
 
 /**
@@ -264,58 +225,118 @@ async function runAnalysis(tabId) {
 // Message listener – entry point from Popup
 // ---------------------------------------------------------------------------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action !== "startAnalysis") return;
-
-  (async () => {
-    try {
-      // 1. Get the currently active tab
-      const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-
-      if (!tab || !tab.url) {
-        await chrome.runtime.sendMessage({
-          action: "error",
-          message: "无法获取当前标签页信息",
-        });
-        return;
-      }
-
-      // 2. Check if the tab is a Perfetto UI page
-      const isPerfetto = tab.url.startsWith("https://ui.perfetto.dev/");
-      if (!isPerfetto) {
-        await chrome.runtime.sendMessage({ action: "notPerfettoPage" });
-        return;
-      }
-
-      // 3. Inject content scripts into the Perfetto page
-      //    Order matters: utility modules first, then the main content script.
+  if (message.action === "startAnalysis") {
+    (async () => {
       try {
-        await injectContentScript(tab.id, ["diagnostics.js", "callstack.js", "content.js"]);
+        // 1. Get the currently active tab
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+
+        if (!tab || !tab.url) {
+          await chrome.runtime.sendMessage({
+            action: "error",
+            message: "无法获取当前标签页信息",
+          });
+          return;
+        }
+
+        // 2. Check if the tab is a Perfetto UI page
+        const isPerfetto = tab.url.startsWith("https://ui.perfetto.dev/");
+        if (!isPerfetto) {
+          await chrome.runtime.sendMessage({ action: "notPerfettoPage" });
+          return;
+        }
+
+        // 3. Inject content scripts into the Perfetto page
+        //    Order matters: utility modules first, then the main content script.
+        try {
+          await injectContentScript(tab.id, ["diagnostics.js", "callstack.js", "content.js"]);
+        } catch (err) {
+          await chrome.runtime.sendMessage({
+            action: "error",
+            message: "无法注入分析脚本，请刷新页面后重试",
+          });
+          return;
+        }
+
+        // 4. Run full analysis pipeline with timeout
+        await runAnalysis(tab.id);
       } catch (err) {
-        await chrome.runtime.sendMessage({
-          action: "error",
-          message: "无法注入分析脚本，请刷新页面后重试",
-        });
-        return;
+        try {
+          await chrome.runtime.sendMessage({
+            action: "error",
+            message: `分析过程中发生错误：${err.message}`,
+          });
+        } catch (_) {
+          // Popup closed; nothing we can do.
+        }
       }
+    })();
+    return true;
+  }
 
-      // 4. Run full analysis pipeline with timeout
-      await runAnalysis(tab.id);
-    } catch (err) {
+  if (message.action === "exportReport") {
+    (async () => {
       try {
-        await chrome.runtime.sendMessage({
-          action: "error",
-          message: `分析过程中发生错误：${err.message}`,
-        });
-      } catch (_) {
-        // Popup closed; nothing we can do.
-      }
-    }
-  })();
+        const markdown = generateReport(message.reportData);
+        const filename = generateFilename();
 
-  // Return true to indicate we will respond asynchronously (keeps the
-  // message channel open, though we send updates via runtime.sendMessage).
-  return true;
+        const bytes = new TextEncoder().encode(markdown);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64Content = btoa(binary);
+        const dataUrl = `data:text/markdown;base64,${base64Content}`;
+
+        chrome.downloads.download({ url: dataUrl, filename, saveAs: false }, (id) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ success: true });
+          }
+        });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === "zoomToProblem") {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && tab.url.startsWith("https://ui.perfetto.dev/")) {
+          await sendToContentScript(tab.id, (tsStr, durStr) => {
+            try {
+              const timeline = window.app.trace.timeline;
+              const vw = timeline._visibleWindow;
+              if (!vw) return;
+              
+              const HPT = vw.start.constructor;
+              const HPTS = vw.constructor;
+              
+              const ts = BigInt(tsStr);
+              const dur = BigInt(durStr);
+              
+              // Add 33% padding
+              const padding = dur / 3n;
+              const startTime = new HPT({ integral: ts - padding, fractional: 0 });
+              const totalDur = Number(dur + padding * 2n);
+              
+              timeline.setVisibleWindow(new HPTS(startTime, totalDur));
+            } catch (e) {
+              console.error("Zoom failed:", e);
+            }
+          }, [message.ts, message.dur]);
+        }
+      } catch (e) {
+        console.error("ZoomToProblem error:", e);
+      }
+    })();
+    return true;
+  }
 });

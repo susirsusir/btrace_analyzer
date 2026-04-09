@@ -27,6 +27,11 @@ const completeArea = document.getElementById("completeArea");
 const completeText = document.getElementById("completeText");
 const errorArea = document.getElementById("errorArea");
 const errorText = document.getElementById("errorText");
+const resultsArea = document.getElementById("resultsArea");
+const problemList = document.getElementById("problemList");
+const exportBtn = document.getElementById("exportBtn");
+
+let currentReportData = null;
 
 /**
  * Set UI to Idle state.
@@ -36,6 +41,7 @@ function setIdle() {
   progressArea.style.display = "none";
   completeArea.style.display = "none";
   errorArea.style.display = "none";
+  resultsArea.style.display = "none";
 }
 
 /**
@@ -48,34 +54,106 @@ function setAnalyzing(step, description) {
   progressArea.style.display = "block";
   completeArea.style.display = "none";
   errorArea.style.display = "none";
+  resultsArea.style.display = "none";
   progressText.textContent = description || PROGRESS_LABELS[step] || step;
 }
 
 /**
  * Set UI to Complete state.
- * @param {string} filename - The saved report filename.
+ * @param {Array} issues - The generated issues array.
+ * @param {Object} reportData - The raw report data for export.
  */
-function setComplete(filename) {
+function setComplete(issues, reportData) {
   startBtn.disabled = false;
   progressArea.style.display = "none";
-  completeArea.style.display = "block";
   errorArea.style.display = "none";
-  completeText.textContent = filename
-    ? `分析完成！报告已保存：${filename}`
-    : "分析完成！";
+  
+  if (issues && issues.length > 0) {
+    currentReportData = reportData;
+    resultsArea.style.display = "block";
+    completeArea.style.display = "none";
+    renderIssues(issues);
+  } else {
+    resultsArea.style.display = "none";
+    completeArea.style.display = "block";
+    completeText.textContent = "分析完成！未发现明显的性能问题。";
+  }
+}
+
+/**
+ * Render the issues list
+ */
+function renderIssues(issues) {
+  problemList.innerHTML = "";
+  
+  issues.forEach((issue) => {
+    const li = document.createElement("li");
+    li.style.cssText = "padding: 10px; border-bottom: 1px solid #eee; display: flex; flex-direction: column; gap: 6px;";
+    
+    // Title row
+    const titleRow = document.createElement("div");
+    titleRow.style.cssText = "display: flex; justify-content: space-between; align-items: flex-start;";
+    
+    const titleText = document.createElement("strong");
+    titleText.style.cssText = "font-size: 13px; color: #1a1a1a; word-break: break-all;";
+    titleText.textContent = `[${issue.severity}] ${issue.title.replace("主线程长耗时: ", "").replace("帧卡顿: ", "").replace("主线程 I/O: ", "").replace("CPU 密集型方法: ", "")}`;
+    
+    titleRow.appendChild(titleText);
+    
+    // View button (only if we have ts and dur)
+    if (issue.ts && issue.dur) {
+      const viewBtn = document.createElement("button");
+      viewBtn.textContent = "查看";
+      viewBtn.style.cssText = "padding: 4px 8px; font-size: 12px; color: #fff; background: #4285f4; border: none; border-radius: 4px; cursor: pointer; flex-shrink: 0; margin-left: 8px;";
+      viewBtn.onclick = () => {
+        chrome.runtime.sendMessage({
+          action: "zoomToProblem",
+          ts: issue.ts,
+          dur: issue.dur
+        });
+      };
+      titleRow.appendChild(viewBtn);
+    }
+    
+    li.appendChild(titleRow);
+    
+    // Duration
+    const durDiv = document.createElement("div");
+    durDiv.style.cssText = "font-size: 12px; color: #666;";
+    durDiv.textContent = `耗时: ${issue.duration}`;
+    li.appendChild(durDiv);
+    
+    problemList.appendChild(li);
+  });
 }
 
 /**
  * Set UI to Error state.
- * @param {string} message - Error message to display.
  */
 function setError(message) {
   startBtn.disabled = false;
   progressArea.style.display = "none";
   completeArea.style.display = "none";
+  resultsArea.style.display = "none";
   errorArea.style.display = "block";
   errorText.textContent = message;
 }
+
+// Handle Export button click
+exportBtn.addEventListener("click", () => {
+  if (!currentReportData) return;
+  chrome.runtime.sendMessage({ 
+    action: "exportReport",
+    reportData: currentReportData
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      setError("导出失败：" + chrome.runtime.lastError.message);
+    } else {
+      completeArea.style.display = "block";
+      completeText.textContent = "导出完成！";
+    }
+  });
+});
 
 // Handle "开始分析" button click
 startBtn.addEventListener("click", () => {
@@ -100,7 +178,7 @@ chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
       break;
 
     case "complete":
-      setComplete(message.filename);
+      setComplete(message.issues, message.reportData);
       break;
 
     case "error":
