@@ -1,2 +1,3 @@
 config.local.json
 trace-analysis/
+/perfetto-trace-analyzer-extension/node_modules/*
