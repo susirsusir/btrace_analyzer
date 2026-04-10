@@ -20,6 +20,15 @@ var _window = typeof window !== "undefined" ? window : {};
   // SQL query definitions
   // -----------------------------------------------------------------------
 
+  // Sub-query that resolves the main thread utid reliably across Android traces.
+  // Strategy: prefer is_main_thread=1, fall back to tid=pid (Android main thread
+  // tid always equals the process pid), then fall back to thread name 'main'.
+  const MAIN_THREAD_CONDITION = `(
+    t.is_main_thread = 1
+    OR t.tid = (SELECT pid FROM process ORDER BY pid LIMIT 1)
+    OR t.name = 'main'
+  )`;
+
   const DIAGNOSTIC_QUERIES = {
     long_slices: `
       SELECT s.id, s.name, s.dur / 1000000.0 AS dur_ms,
@@ -27,7 +36,7 @@ var _window = typeof window !== "undefined" ? window : {};
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
       JOIN thread t ON tt.utid = t.utid
-      WHERE t.name = 'main' OR t.is_main_thread = 1
+      WHERE ${MAIN_THREAD_CONDITION}
       ORDER BY s.dur DESC
       LIMIT 30
     `,
@@ -38,7 +47,7 @@ var _window = typeof window !== "undefined" ? window : {};
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
       JOIN thread t ON tt.utid = t.utid
-      WHERE (t.name = 'main' OR t.is_main_thread = 1)
+      WHERE ${MAIN_THREAD_CONDITION}
         AND (s.name LIKE '%doFrame%' OR s.name LIKE '%Choreographer%' OR s.name LIKE '%traversal%')
         AND s.dur > 16600000
       ORDER BY s.dur DESC
@@ -50,6 +59,9 @@ var _window = typeof window !== "undefined" ? window : {};
              SUM(s.dur) / 1000000.0 AS total_ms,
              AVG(s.dur) / 1000000.0 AS avg_ms
       FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      WHERE ${MAIN_THREAD_CONDITION}
       GROUP BY s.name
       HAVING count > 5
       ORDER BY total_ms DESC
@@ -62,7 +74,7 @@ var _window = typeof window !== "undefined" ? window : {};
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
       JOIN thread t ON tt.utid = t.utid
-      WHERE (t.name = 'main' OR t.is_main_thread = 1)
+      WHERE ${MAIN_THREAD_CONDITION}
         AND (s.name LIKE '%Binder%' OR s.name LIKE '%sqlite%'
              OR s.name LIKE '%SharedPreferences%' OR s.name LIKE '%File%'
              OR s.name LIKE '%network%' OR s.name LIKE '%http%')
