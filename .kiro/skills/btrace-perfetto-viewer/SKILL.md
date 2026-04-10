@@ -72,6 +72,12 @@ Expected output should end with `writing trace:/tmp/btrace_work/sampling.pb`. Th
 
 ### Step 3: Start local HTTP server
 
+Before starting the server, kill any process already occupying port 9001 to avoid conflicts with other tools (e.g., HBAPM plugin) that use the same port:
+
+```bash
+lsof -ti:9001 | xargs kill -9 2>/dev/null; true
+```
+
 Start a background HTTP server to serve the `.pb` file to Perfetto UI. The server MUST:
 - Listen on `127.0.0.1:9001`
 - Set `Access-Control-Allow-Origin: https://ui.perfetto.dev` header (required for CORS)
