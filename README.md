@@ -2,18 +2,19 @@
 
 [中文文档](README_CN.md)
 
-A Kiro AI skill for analyzing BTrace/xTrace Android performance sampling trace files. It parses custom binary trace and mapping files to identify CPU hotspots, hot call stacks, and performance bottlenecks.
+A toolkit for analyzing BTrace/xTrace Android performance sampling trace files. Includes two Kiro AI skills and a Chrome extension for automated Perfetto UI analysis.
 
 ## What is this?
 
 BTrace/xTrace is a custom binary sampling trace format used by some Android performance monitoring SDKs (e.g., `BTraceMonitor`). These files are **not** standard Perfetto/systrace format and cannot be loaded in Perfetto UI directly.
 
-This project provides two [Kiro Agent Skills](https://kiro.dev/docs/skills/) for analyzing these trace files:
+This project provides three tools:
 
-| Skill | Description | Dependencies |
-|-------|-------------|--------------|
-| `btrace-analyzer` | Text-based analysis — parses binary directly, outputs CPU hotspots and hot call stacks | None (inline Python) |
-| `btrace-perfetto-viewer` | Visual analysis — converts to Perfetto protobuf, opens in Perfetto UI, runs SQL diagnostics, generates report with screenshots | Java 8+, `btrace.jar`, `chrome-devtools-mcp` |
+| Tool | Type | Description | Dependencies |
+|------|------|-------------|--------------|
+| `btrace-analyzer` | Kiro Skill | Text-based analysis — parses binary directly, outputs CPU hotspots and hot call stacks | None (inline Python) |
+| `btrace-perfetto-viewer` | Kiro Skill | Visual analysis — converts to Perfetto protobuf, opens in Perfetto UI, runs SQL diagnostics, generates report with screenshots | Java 8+, `btrace.jar`, `chrome-devtools-mcp` |
+| `perfetto-trace-analyzer-extension` | Chrome Extension | Automated analysis on an already-loaded trace in Perfetto UI — runs SQL diagnostics, traces call stacks, saves a Markdown report locally | Chrome browser |
 
 ## Features
 
@@ -24,8 +25,11 @@ This project provides two [Kiro Agent Skills](https://kiro.dev/docs/skills/) for
 - Identify hot call stacks (most frequently sampled execution paths)
 - Provide actionable performance optimization suggestions
 - Convert to Perfetto protobuf and open in Perfetto UI for visual analysis (requires `btrace.jar`)
+- Chrome extension for one-click automated analysis directly in Perfetto UI
 
 ## Environment Setup
+
+### Kiro Skills
 
 The Perfetto viewer skill (`btrace-perfetto-viewer`) requires external tools that are NOT included in this repository:
 
@@ -38,6 +42,10 @@ The Perfetto viewer skill (`btrace-perfetto-viewer`) requires external tools tha
 After obtaining `btrace.jar`, place it in a known location (e.g., `~/.btrace-analyzer/btrace.jar`). The skill will ask for the path on first use.
 
 The text analysis skill (`btrace-analyzer`) has no external dependencies — it parses the binary format directly with inline Python.
+
+### Chrome Extension
+
+No external dependencies. Load the `perfetto-trace-analyzer-extension/` directory as an unpacked extension in Chrome.
 
 ## Configuration
 
@@ -107,7 +115,7 @@ Each mapping record:
 
 ## Installation
 
-### As a Kiro Workspace Skill
+### Kiro Skills — Workspace
 
 Clone this repo into your project's `.kiro/skills/` directory:
 
@@ -116,13 +124,20 @@ cd your-project
 git clone https://github.com/<your-username>/btrace_analyzer.git .kiro/skills/btrace-analyzer
 ```
 
-### As a Kiro Global Skill
+### Kiro Skills — Global
 
 Clone into your global skills directory to make it available across all workspaces:
 
 ```bash
 git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/btrace-analyzer
 ```
+
+### Chrome Extension
+
+1. Open Chrome and navigate to `chrome://extensions/`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked** and select the `perfetto-trace-analyzer-extension/` directory
+4. The extension icon will appear in the toolbar, active only on `ui.perfetto.dev`
 
 ## Usage
 
@@ -156,6 +171,18 @@ Kiro will:
 5. Navigate to each issue's exact time range and take screenshots
 6. Generate a prioritized report at `trace-analysis/<traceID>/report.md`
 
+### Chrome Extension (perfetto-trace-analyzer-extension)
+
+For automated analysis of a trace already loaded in Perfetto UI:
+
+1. Open `https://ui.perfetto.dev` and load your trace file
+2. Click the **Perfetto Trace Analyzer** extension icon
+3. Click **Start Analysis**
+4. The extension will run four diagnostic queries, trace call stacks for each issue, and generate a Markdown report
+5. The report is automatically downloaded as `perfetto_analysis_report_YYYYMMDD_HHmmss.md`
+
+Severity levels in the report: **P0** (>500ms), **P1** (>200ms), **P2** (>100ms), **P3** (≤100ms)
+
 ## Analysis Output
 
 ### Text Analysis
@@ -181,6 +208,14 @@ trace-analysis/
 ```
 
 Each issue in the report includes severity (P0-P3), description, affected method, duration, impact, optimization suggestion, and a Perfetto timeline screenshot zoomed to the exact time range.
+
+### Chrome Extension
+
+A single Markdown file downloaded to your default downloads folder. Each issue includes:
+
+- Severity (P0-P3), title, affected method, duration
+- Call stack (up to 25 frames)
+- Optimization suggestion
 
 Multiple analyses are stored in separate subdirectories and never overwrite each other.
 
