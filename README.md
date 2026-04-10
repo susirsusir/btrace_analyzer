@@ -236,4 +236,6 @@ Each mapping record:
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
+
+> Note: `btrace.jar` is a separate tool distributed by the ByteDance APM SDK team and is **not** covered by this license. Refer to your APM SDK agreement for its terms.

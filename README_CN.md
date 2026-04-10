@@ -236,4 +236,6 @@ AI 会自动：
 
 ## 许可证
 
-MIT
+Apache License 2.0 — 详见 [LICENSE](LICENSE)。
+
+> 注意：`btrace.jar` 是字节跳动 APM SDK 团队分发的独立工具，**不在本许可证覆盖范围内**。其使用条款请参考你的 APM SDK 协议。
