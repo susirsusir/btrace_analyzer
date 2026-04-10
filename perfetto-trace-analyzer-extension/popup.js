@@ -110,16 +110,27 @@ function renderIssues(issues) {
         viewBtn.textContent = "打开中...";
         viewBtn.disabled = true;
         viewBtn.style.background = "#aaa";
+        // Pass a short label so the new tab can be identified
+        const label = `[${issue.severity}] ${issue.title.replace("主线程长耗时: ", "").replace("帧卡顿: ", "").replace("主线程 I/O: ", "").replace("CPU 密集型方法: ", "")}`;
         chrome.runtime.sendMessage({
           action: "zoomToProblem",
           ts: issue.ts,
-          dur: issue.dur
+          dur: issue.dur,
+          sliceId: issue.id,
+          label
         }, () => {
           viewBtn.textContent = "✓ 已打开";
           viewBtn.style.background = "#34a853";
         });
       };
       titleRow.appendChild(viewBtn);
+    } else {
+      // cpu_heavy issues have no specific timestamp — show a hint instead
+      const noLocBtn = document.createElement("span");
+      noLocBtn.textContent = "聚合问题";
+      noLocBtn.title = "该问题为多次调用聚合统计，无法定位到单一时间点";
+      noLocBtn.style.cssText = "padding: 4px 8px; font-size: 11px; color: #999; background: #f0f0f0; border-radius: 4px; flex-shrink: 0; margin-left: 8px;";
+      titleRow.appendChild(noLocBtn);
     }
     
     li.appendChild(titleRow);

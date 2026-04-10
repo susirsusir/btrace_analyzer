@@ -351,6 +351,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Open a new tab with the same trace URL.
         const newTab = await chrome.tabs.create({ url: perfettoUrl, active: true });
         const newTabId = newTab.id;
+        console.log('[SW] opened new tab id:', newTabId, 'url:', perfettoUrl);
 
         // Wait for the Perfetto engine to become available in the new tab (up to 15s).
         const ready = await new Promise((resolve) => {
@@ -384,22 +385,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // React render that resets the timeline to show the full trace.
         await new Promise(r => setTimeout(r, 1000));
 
-        // Inject content scripts then zoom.
-        await injectContentScript(newTabId, ["diagnostics.js", "callstack.js", "content.js"]);
-        
-        // Verify injection succeeded
-        const checkResult = await sendToContentScript(newTabId,
-          () => ({
-            hasAnalyzer: !!window.__perfettoAnalyzer,
-            hasZoom: !!(window.__perfettoAnalyzer && window.__perfettoAnalyzer.zoomToTimeRange),
-            hasEngine: !!(window.app && window.app.trace && window.app.trace.engine),
-          }));
-        console.log('[SW] injection check:', JSON.stringify(checkResult));
-        
+        // Execute zoom directly via executeScript (inline func, no file injection needed).
+        // Using files injection + a separate func call has a race condition where
+        // the injected file may not have finished executing before the func runs.
         const zoomResult = await sendToContentScript(newTabId,
-          (tsStr, durStr) => window.__perfettoAnalyzer.zoomToTimeRange(tsStr, durStr),
-          [message.ts, message.dur]);
+          (tsStr, durStr, label, sliceIdStr) => {
+            try {
+              // Update the page title so multiple tabs can be distinguished
+              if (label) document.title = label + ' — Perfetto';
+              const timeline = window.app.trace.timeline;
+              const vw = timeline._visibleWindow;
+              if (!vw) return 'no visibleWindow';
+              const HPT = vw.start.constructor;
+              const HPTS = vw.constructor;
+              const ts = BigInt(tsStr);
+              const dur = BigInt(durStr);
+
+              // Add 10% padding on each side so the target slice is visually centred
+              // and not flush against the viewport edge.
+              const padding = BigInt(Math.round(Number(dur) * 0.1));
+              const paddedStart = ts - padding > 0n ? ts - padding : ts;
+              const paddedDur = Number(dur) + Number(padding) * 2;
+              timeline.setVisibleWindow(new HPTS(new HPT(paddedStart, 0), paddedDur));
+
+              // Select the specific slice so the details panel highlights it.
+              // Perfetto exposes selection.selectSqlEvent(table, rowId) for this.
+              if (sliceIdStr) {
+                try {
+                  const sel = window.app.trace.selection;
+                  if (sel && typeof sel.selectSqlEvent === 'function') {
+                    sel.selectSqlEvent('slice', Number(sliceIdStr));
+                  }
+                } catch (_) { /* selection API unavailable, non-fatal */ }
+              }
+
+              return 'zoom OK: ' + String(timeline._visibleWindow.start.integral);
+            } catch (e) {
+              return 'zoom error: ' + e.message;
+            }
+          },
+          [message.ts, message.dur, message.label || '', message.sliceId || '']);
         console.log('[SW] zoomToProblem result:', zoomResult);
+
+        // Verify the zoom stuck after 1.5s
+        await new Promise(r => setTimeout(r, 1500));
+        const verifyResult = await sendToContentScript(newTabId,
+          () => String(window.app.trace.timeline._visibleWindow.start.integral));
+        console.log('[SW] zoom verify after 1.5s:', verifyResult);
         sendResponse({ success: true });
       } catch (e) {
         console.error('[SW] ZoomToProblem error:', e);

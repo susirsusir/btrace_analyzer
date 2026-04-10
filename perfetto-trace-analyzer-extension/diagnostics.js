@@ -64,6 +64,7 @@ var _window = typeof window !== "undefined" ? window : {};
       JOIN thread t ON tt.utid = t.utid
       WHERE ${MAIN_THREAD_CONDITION}
         AND ${EXCLUDE_FRAMEWORK}
+      GROUP BY s.ts, s.dur
       ORDER BY s.dur DESC
       LIMIT 30
     `,
@@ -78,6 +79,7 @@ var _window = typeof window !== "undefined" ? window : {};
       WHERE ${MAIN_THREAD_CONDITION}
         AND (s.name LIKE '%doFrame%' OR s.name LIKE '%Choreographer%' OR s.name LIKE '%traversal%')
         AND s.dur > 16600000
+      GROUP BY s.ts, s.dur
       ORDER BY s.dur DESC
       LIMIT 20
     `,
@@ -109,6 +111,7 @@ var _window = typeof window !== "undefined" ? window : {};
         AND (s.name LIKE '%Binder%' OR s.name LIKE '%sqlite%'
              OR s.name LIKE '%SharedPreferences%' OR s.name LIKE '%File%'
              OR s.name LIKE '%network%' OR s.name LIKE '%http%')
+      GROUP BY s.ts, s.dur
       ORDER BY s.dur DESC
       LIMIT 20
     `,

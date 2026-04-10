@@ -73,6 +73,7 @@ function classifyIssues(data) {
     const stack = callStacks[s.id] || [];
     upsert(s.name, {
       severity: classifySeverity(s.dur_ms),
+      id: s.id,
       title: `主线程长耗时: ${s.name}`,
       what: `主线程方法 \`${s.name}\` 单次执行耗时 ${s.dur_ms.toFixed(1)}ms，可能导致 UI 卡顿`,
       where: `\`${s.name}\``,
@@ -98,6 +99,7 @@ function classifyIssues(data) {
     const key = `jank:${s.name}`;
     upsert(key, {
       severity: classifySeverity(s.dur_ms),
+      id: s.id,
       title: `帧卡顿: ${s.name}`,
       what: `帧渲染方法 \`${s.name}\` 耗时 ${s.dur_ms.toFixed(1)}ms，超过 16.6ms 帧预算`,
       where: `\`${s.name}\``,
@@ -118,6 +120,7 @@ function classifyIssues(data) {
     const key = `io:${s.name}`;
     upsert(key, {
       severity: classifySeverity(s.dur_ms),
+      id: s.id,
       title: `主线程 I/O: ${s.name}`,
       what: `主线程上执行了 I/O 操作 \`${s.name}\`，耗时 ${s.dur_ms.toFixed(1)}ms`,
       where: `\`${s.name}\``,
