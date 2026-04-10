@@ -104,15 +104,19 @@ function renderIssues(issues) {
     if (issue.ts && issue.dur) {
       const viewBtn = document.createElement("button");
       viewBtn.textContent = "定位";
-      viewBtn.title = "定位到 Perfetto 时间轴对应位置，点击后切换到 Perfetto 标签页查看";
+      viewBtn.title = "在新标签页打开 Perfetto 并定位到该问题的时间范围";
       viewBtn.style.cssText = "padding: 4px 8px; font-size: 12px; color: #fff; background: #4285f4; border: none; border-radius: 4px; cursor: pointer; flex-shrink: 0; margin-left: 8px;";
       viewBtn.onclick = () => {
-        viewBtn.textContent = "✓ 已定位";
-        viewBtn.style.background = "#34a853";
+        viewBtn.textContent = "打开中...";
+        viewBtn.disabled = true;
+        viewBtn.style.background = "#aaa";
         chrome.runtime.sendMessage({
           action: "zoomToProblem",
           ts: issue.ts,
           dur: issue.dur
+        }, () => {
+          viewBtn.textContent = "✓ 已打开";
+          viewBtn.style.background = "#34a853";
         });
       };
       titleRow.appendChild(viewBtn);

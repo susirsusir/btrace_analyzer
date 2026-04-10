@@ -330,33 +330,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "zoomToProblem") {
     (async () => {
       try {
-        // Use cached tabId first; fall back to active tab query if not available.
-        let targetTabId = perfettoTabId;
-        if (!targetTabId) {
+        // Use cached tabId to get the current Perfetto page URL (with local_cache_key).
+        let sourceTabId = perfettoTabId;
+        if (!sourceTabId) {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (tab && tab.url.startsWith("https://ui.perfetto.dev/")) {
-            targetTabId = tab.id;
+            sourceTabId = tab.id;
           }
         }
-        console.log('[SW] zoomToProblem tabId:', targetTabId, 'ts:', message.ts, 'dur:', message.dur);
-        if (!targetTabId) {
+        console.log('[SW] zoomToProblem tabId:', sourceTabId, 'ts:', message.ts, 'dur:', message.dur);
+        if (!sourceTabId) {
           console.warn('[SW] zoomToProblem: no Perfetto tab found');
           return;
         }
-        // Re-inject content scripts to ensure zoomToTimeRange is available
-        // (page may have been refreshed since startAnalysis ran).
-        try {
-          await injectContentScript(targetTabId, ["diagnostics.js", "callstack.js", "content.js"]);
-        } catch (_) { /* ignore inject errors on zoom */ }
-        const zoomResult = await sendToContentScript(targetTabId,
+
+        // Get the current Perfetto URL (contains local_cache_key so the trace reloads).
+        const sourceTab = await chrome.tabs.get(sourceTabId);
+        const perfettoUrl = sourceTab.url;
+
+        // Open a new tab with the same trace URL.
+        const newTab = await chrome.tabs.create({ url: perfettoUrl, active: true });
+        const newTabId = newTab.id;
+
+        // Wait for the Perfetto engine to become available in the new tab (up to 15s).
+        const ready = await new Promise((resolve) => {
+          let attempts = 0;
+          const MAX = 30; // 30 × 500ms = 15s
+          const poll = async () => {
+            try {
+              const result = await chrome.scripting.executeScript({
+                target: { tabId: newTabId },
+                func: () => !!(window.app && window.app.trace && window.app.trace.engine),
+                world: "MAIN",
+              });
+              if (result && result[0] && result[0].result) {
+                resolve(true);
+                return;
+              }
+            } catch (_) { /* tab still loading */ }
+            if (++attempts < MAX) setTimeout(poll, 500);
+            else resolve(false);
+          };
+          setTimeout(poll, 1000); // initial delay for page load
+        });
+
+        if (!ready) {
+          console.warn('[SW] zoomToProblem: engine not ready in new tab');
+          return;
+        }
+
+        // Inject content scripts then zoom.
+        await injectContentScript(newTabId, ["diagnostics.js", "callstack.js", "content.js"]);
+        const zoomResult = await sendToContentScript(newTabId,
           (tsStr, durStr) => window.__perfettoAnalyzer.zoomToTimeRange(tsStr, durStr),
           [message.ts, message.dur]);
         console.log('[SW] zoomToProblem result:', zoomResult);
-        // NOTE: We intentionally do NOT switch the tab to foreground here.
-        // Switching tabs closes the popup and loses its state. The user can
-        // manually switch to the Perfetto tab to see the zoomed timeline.
+        sendResponse({ success: true });
       } catch (e) {
         console.error('[SW] ZoomToProblem error:', e);
+        sendResponse({ error: e.message });
       }
     })();
     return true;
