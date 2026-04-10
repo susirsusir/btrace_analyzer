@@ -38,7 +38,7 @@
 
     // Get the initial slice by id
     var initial = await engine.query(
-      "SELECT CAST(id AS TEXT) as id, CAST(COALESCE(parent_id, -1) AS TEXT) as pid, name " +
+      "SELECT CAST(id AS TEXT) as id, CAST(COALESCE(parent_id, -1) AS TEXT) as pid, CAST(name AS TEXT) as name " +
       "FROM slice WHERE id = " + sliceId
     );
 
@@ -51,7 +51,7 @@
     // Walk up the parent_id chain until we hit root (-1) or maxDepth
     for (var i = 0; i < maxDepth && currentPid && currentPid !== "-1"; i++) {
       var q = await engine.query(
-        "SELECT CAST(id AS TEXT) as id, CAST(COALESCE(parent_id, -1) AS TEXT) as pid, name " +
+        "SELECT CAST(id AS TEXT) as id, CAST(COALESCE(parent_id, -1) AS TEXT) as pid, CAST(name AS TEXT) as name " +
         "FROM slice WHERE id = " + currentPid
       );
       var found = false;

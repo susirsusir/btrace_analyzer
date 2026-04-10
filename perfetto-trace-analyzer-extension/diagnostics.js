@@ -29,20 +29,48 @@ var _window = typeof window !== "undefined" ? window : {};
     OR t.name = 'main'
   )`;
 
+  // Prefixes that identify Android/Java/Kotlin framework internals.
+  // Slices whose names start with these are excluded from long_slices and
+  // frame_jank results to avoid flooding the report with call-stack noise.
+  const FRAMEWORK_PREFIXES = [
+    "void com.android.internal.",
+    "void android.",
+    "boolean android.",
+    "int android.",
+    "java.lang.Object android.",
+    "void java.",
+    "java.lang.",
+    "void kotlin.",
+    "kotlin.",
+    "java.lang.Object kotlin.",
+    "kotlinx.coroutines.Job kotlin.",
+    "void kotlinx.coroutines.",
+    "java.lang.Object kotlinx.coroutines.",
+    "kotlinx.coroutines.",
+  ];
+
+  // Build a SQL WHERE fragment that excludes framework slices.
+  const EXCLUDE_FRAMEWORK = FRAMEWORK_PREFIXES
+    .map(p => `s.name NOT LIKE '${p}%'`)
+    .join("\n        AND ");
+
   const DIAGNOSTIC_QUERIES = {
     long_slices: `
-      SELECT s.id, s.name, s.dur / 1000000.0 AS dur_ms,
+      SELECT CAST(s.id AS TEXT) AS id, CAST(s.name AS TEXT) AS name,
+             CAST(s.dur / 1000000.0 AS TEXT) AS dur_ms,
              CAST(s.ts AS TEXT) AS ts_str, CAST(s.dur AS TEXT) AS dur_str
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
       JOIN thread t ON tt.utid = t.utid
       WHERE ${MAIN_THREAD_CONDITION}
+        AND ${EXCLUDE_FRAMEWORK}
       ORDER BY s.dur DESC
       LIMIT 30
     `,
 
     frame_jank: `
-      SELECT s.id, s.name, s.dur / 1000000.0 AS dur_ms,
+      SELECT CAST(s.id AS TEXT) AS id, CAST(s.name AS TEXT) AS name,
+             CAST(s.dur / 1000000.0 AS TEXT) AS dur_ms,
              CAST(s.ts AS TEXT) AS ts_str, CAST(s.dur AS TEXT) AS dur_str
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
@@ -55,21 +83,24 @@ var _window = typeof window !== "undefined" ? window : {};
     `,
 
     cpu_heavy: `
-      SELECT s.name, COUNT(*) AS count,
-             SUM(s.dur) / 1000000.0 AS total_ms,
-             AVG(s.dur) / 1000000.0 AS avg_ms
+      SELECT CAST(s.name AS TEXT) AS name,
+             CAST(COUNT(*) AS TEXT) AS count,
+             CAST(SUM(s.dur) / 1000000.0 AS TEXT) AS total_ms,
+             CAST(AVG(s.dur) / 1000000.0 AS TEXT) AS avg_ms
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
       JOIN thread t ON tt.utid = t.utid
       WHERE ${MAIN_THREAD_CONDITION}
+        AND ${EXCLUDE_FRAMEWORK}
       GROUP BY s.name
-      HAVING count > 5
+      HAVING COUNT(*) > 5
       ORDER BY total_ms DESC
       LIMIT 30
     `,
 
     main_thread_io: `
-      SELECT s.id, s.name, s.dur / 1000000.0 AS dur_ms,
+      SELECT CAST(s.id AS TEXT) AS id, CAST(s.name AS TEXT) AS name,
+             CAST(s.dur / 1000000.0 AS TEXT) AS dur_ms,
              CAST(s.ts AS TEXT) AS ts_str, CAST(s.dur AS TEXT) AS dur_str
       FROM slice s
       JOIN thread_track tt ON s.track_id = tt.id
@@ -109,12 +140,24 @@ var _window = typeof window !== "undefined" ? window : {};
   // -----------------------------------------------------------------------
   // Column schemas for Perfetto's result.iter() API
   // -----------------------------------------------------------------------
+  // All columns use "str" because Perfetto's iter() enforces strict type
+  // matching: id/count are VARINT, dur_ms/total_ms/avg_ms are FLOAT64 —
+  // neither maps to "num" in the iter schema. We CAST everything to TEXT
+  // in SQL and convert to numbers in JS after reading.
 
   const COLUMN_SCHEMAS = {
-    long_slices: { id: "num", name: "str", dur_ms: "num", ts_str: "str", dur_str: "str" },
-    frame_jank: { id: "num", name: "str", dur_ms: "num", ts_str: "str", dur_str: "str" },
-    cpu_heavy: { name: "str", count: "num", total_ms: "num", avg_ms: "num" },
-    main_thread_io: { id: "num", name: "str", dur_ms: "num", ts_str: "str", dur_str: "str" },
+    long_slices:    { id: "str", name: "str", dur_ms: "str", ts_str: "str", dur_str: "str" },
+    frame_jank:     { id: "str", name: "str", dur_ms: "str", ts_str: "str", dur_str: "str" },
+    cpu_heavy:      { name: "str", count: "str", total_ms: "str", avg_ms: "str" },
+    main_thread_io: { id: "str", name: "str", dur_ms: "str", ts_str: "str", dur_str: "str" },
+  };
+
+  // Numeric columns that need parseFloat/parseInt after reading from iter()
+  const NUMERIC_COLUMNS = {
+    long_slices:    ["dur_ms"],
+    frame_jank:     ["dur_ms"],
+    cpu_heavy:      ["count", "total_ms", "avg_ms"],
+    main_thread_io: ["dur_ms"],
   };
 
   // -----------------------------------------------------------------------
@@ -141,12 +184,14 @@ var _window = typeof window !== "undefined" ? window : {};
 
     const result = await engine.query(sql);
     const schema = COLUMN_SCHEMAS[type];
+    const numericCols = NUMERIC_COLUMNS[type] || [];
     const rows = [];
 
     for (const it = result.iter(schema); it.valid(); it.next()) {
       const row = {};
       for (const col of Object.keys(schema)) {
-        row[col] = it[col];
+        const val = it[col];
+        row[col] = numericCols.includes(col) ? parseFloat(val) : val;
       }
       rows.push(row);
     }
@@ -175,6 +220,7 @@ var _window = typeof window !== "undefined" ? window : {};
       IO_KEYWORDS,
       isIORelated,
       COLUMN_SCHEMAS,
+      FRAMEWORK_PREFIXES,
     };
   }
 })();
