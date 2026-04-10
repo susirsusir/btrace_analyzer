@@ -372,18 +372,15 @@ function formatDateTime(date) {
 
 
 // ---------------------------------------------------------------------------
-// Export for testing (Node.js / Jest). In the Service Worker context,
-// `module` is undefined and this block is safely skipped.
+// Exports — ES module (browser Service Worker + Babel-transpiled Jest tests)
 // ---------------------------------------------------------------------------
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = {
-    classifySeverity,
-    classifyIssues,
-    formatCallStack,
-    generateReport,
-    generateFilename,
-    severityRank,
-    formatDateTime,
-    generateSummary,
-  };
-}
+export {
+  classifySeverity,
+  classifyIssues,
+  formatCallStack,
+  generateReport,
+  generateFilename,
+  severityRank,
+  formatDateTime,
+  generateSummary,
+};

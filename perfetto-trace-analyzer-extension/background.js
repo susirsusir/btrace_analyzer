@@ -9,7 +9,12 @@
  */
 
 // Load report generation functions into the Service Worker context.
-importScripts("report.js");
+import { classifyIssues, generateReport, generateFilename } from "./report.js";
+
+console.log('[SW] background.js loaded, import OK');
+
+// Cache the Perfetto tab ID so zoomToProblem can use it even after the popup closes.
+let perfettoTabId = null;
 
 const PERFETTO_URL_PATTERN = "https://ui.perfetto.dev/*";
 const ANALYSIS_TIMEOUT_MS = 30000; // 30 seconds
@@ -97,6 +102,7 @@ const DIAGNOSTIC_LABELS = {
  * @param {number} tabId - The Perfetto tab to analyse.
  */
 async function runAnalysisCore(tabId) {
+  console.log('[SW] runAnalysisCore start, tabId:', tabId);
   // ------------------------------------------------------------------
   // Step 1: Check trace loaded
   // ------------------------------------------------------------------
@@ -106,8 +112,10 @@ async function runAnalysisCore(tabId) {
     tabId,
     () => window.__perfettoAnalyzer.checkTraceLoaded()
   );
+  console.log('[SW] traceStatus:', JSON.stringify(traceStatus));
 
   if (!traceStatus || !traceStatus.ready) {
+    console.warn('[SW] trace not ready, aborting');
     try {
       await chrome.runtime.sendMessage({ action: "traceNotLoaded" });
     } catch (_) { /* popup closed */ }
@@ -128,9 +136,10 @@ async function runAnalysisCore(tabId) {
         [type]
       );
       diagnosticResults[type] = rows || [];
+      console.log(`[SW] diagnostic "${type}": ${diagnosticResults[type].length} rows`);
     } catch (err) {
       // Skip this diagnostic type on failure, continue with others
-      console.warn(`Diagnostic query "${type}" failed, skipping:`, err);
+      console.warn(`[SW] Diagnostic query "${type}" failed, skipping:`, err);
       diagnosticResults[type] = [];
     }
   }
@@ -186,6 +195,7 @@ async function runAnalysisCore(tabId) {
   };
 
   const issues = classifyIssues(reportData);
+  console.log('[SW] issues count:', issues.length, issues.map(i => `[${i.severity}] ${i.title}`));
 
   try {
     await chrome.runtime.sendMessage({
@@ -225,6 +235,7 @@ async function runAnalysis(tabId) {
 // Message listener – entry point from Popup
 // ---------------------------------------------------------------------------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[SW] onMessage:', message && message.action);
   if (message.action === "startAnalysis") {
     (async () => {
       try {
@@ -233,6 +244,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           active: true,
           currentWindow: true,
         });
+        console.log('[SW] active tab:', tab && tab.url);
+
+        // Cache the Perfetto tab ID for later use by zoomToProblem
+        perfettoTabId = tab.id;
 
         if (!tab || !tab.url) {
           await chrome.runtime.sendMessage({
@@ -253,7 +268,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         //    Order matters: utility modules first, then the main content script.
         try {
           await injectContentScript(tab.id, ["diagnostics.js", "callstack.js", "content.js"]);
+          console.log('[SW] content scripts injected OK');
         } catch (err) {
+          console.error('[SW] inject failed:', err);
           await chrome.runtime.sendMessage({
             action: "error",
             message: "无法注入分析脚本，请刷新页面后重试",
@@ -308,13 +325,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "zoomToProblem") {
     (async () => {
       try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab && tab.url.startsWith("https://ui.perfetto.dev/")) {
-          await sendToContentScript(tab.id, (tsStr, durStr) => {
+        // Use cached tabId first; fall back to active tab query if not available.
+        let targetTabId = perfettoTabId;
+        if (!targetTabId) {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab && tab.url.startsWith("https://ui.perfetto.dev/")) {
+            targetTabId = tab.id;
+          }
+        }
+        console.log('[SW] zoomToProblem tabId:', targetTabId, 'ts:', message.ts, 'dur:', message.dur);
+        if (!targetTabId) {
+          console.warn('[SW] zoomToProblem: no Perfetto tab found');
+          return;
+        }
+        await sendToContentScript(targetTabId, (tsStr, durStr) => {
             try {
               const timeline = window.app.trace.timeline;
               const vw = timeline._visibleWindow;
-              if (!vw) return;
+              if (!vw) return 'no visibleWindow';
               
               const HPT = vw.start.constructor;
               const HPTS = vw.constructor;
@@ -328,13 +356,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const totalDur = Number(dur + padding * 2n);
               
               timeline.setVisibleWindow(new HPTS(startTime, totalDur));
+              return 'zoom OK';
             } catch (e) {
-              console.error("Zoom failed:", e);
+              return 'zoom error: ' + e.message;
             }
           }, [message.ts, message.dur]);
-        }
       } catch (e) {
-        console.error("ZoomToProblem error:", e);
+        console.error('[SW] ZoomToProblem error:', e);
       }
     })();
     return true;

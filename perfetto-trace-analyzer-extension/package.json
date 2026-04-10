@@ -1,6 +1,6 @@
 {
   "name": "perfetto-trace-analyzer-extension",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "",
   "main": "background.js",
   "scripts": {
@@ -11,6 +11,9 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.2",
+    "babel-jest": "^30.3.0",
     "fast-check": "^4.6.0",
     "jest": "^30.3.0"
   }

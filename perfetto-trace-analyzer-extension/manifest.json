@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Perfetto Trace Analyzer",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "自动化分析 Perfetto UI 中的 BTrace/xTrace trace 数据",
   "permissions": ["activeTab", "scripting", "downloads"],
   "action": {
@@ -14,7 +14,8 @@
   },
   "content_scripts": [],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "host_permissions": ["https://ui.perfetto.dev/*"]
 }
