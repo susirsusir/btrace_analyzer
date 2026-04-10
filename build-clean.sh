@@ -26,6 +26,7 @@ zip -r dist-zip/perfetto-trace-analyzer-extension-v${NEW_VERSION}.zip . \
   -x "*.test.js" \
   -x "build-clean.sh" \
   -x "package-lock.json" \
+  -x "babel.config.js" \
   -x "dist-zip/*"
 
 echo "完成！插件版本 $NEW_VERSION 已保存到 dist-zip/perfetto-trace-analyzer-extension-v${NEW_VERSION}.zip"
