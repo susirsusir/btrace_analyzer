@@ -2,60 +2,105 @@
 
 [English](README.md)
 
-一个用于分析 BTrace/xTrace Android 性能采样 trace 文件的工具集。包含两个 Kiro AI 技能和一个 Chrome 扩展，支持自动化 Perfetto UI 分析。
+一个用于分析 BTrace/xTrace Android 性能采样 trace 文件的工具集。提供**三个完全独立的工具**，按需选用。
 
 ## 这是什么？
 
 BTrace/xTrace 是部分 Android 性能监控 SDK（如 `BTraceMonitor`）使用的自定义二进制采样 trace 格式。这些文件**不是**标准的 Perfetto/systrace 格式，无法直接在 Perfetto UI 中加载。
 
-本项目提供三个工具：
+## 三个独立工具
 
-| 工具 | 类型 | 说明 | 依赖 |
+三个工具完全独立，互不依赖。使用其中任意一个，无需安装或配置其他两个。
+
+| 工具 | 类型 | 功能 | 依赖 |
 |------|------|------|------|
-| `btrace-analyzer` | Kiro 技能 | 文本分析 — 直接解析二进制，输出 CPU 热点和热调用栈 | 无（内联 Python） |
-| `btrace-perfetto-viewer` | Kiro 技能 | 可视化分析 — 转换为 Perfetto protobuf，在 Perfetto UI 中打开，运行 SQL 诊断，生成带截图的报告 | Java 8+、`btrace.jar`、`chrome-devtools-mcp` |
-| `perfetto-trace-analyzer-extension` | Chrome 扩展 | 在 Perfetto UI 中对已加载的 trace 自动执行诊断分析，追溯调用栈，将 Markdown 报告保存到本地 | Chrome 浏览器 |
+| [`btrace-analyzer`](skills/btrace-analyzer/SKILL.md) | AI 技能 | 文本分析 — 直接下载并解析二进制，在对话中输出 CPU 热点、Inclusive Time 和热调用栈 | Python 3、curl |
+| [`btrace-perfetto-viewer`](skills/btrace-perfetto-viewer/SKILL.md) | AI 技能 | 可视化分析 — 转换为 Perfetto protobuf，通过 MCP 浏览器在 Perfetto UI 中打开，运行 SQL 诊断，生成带截图的 Markdown 报告 | Java 8+、`btrace.jar`、`chrome-devtools-mcp` |
+| [`perfetto-trace-analyzer-extension`](perfetto-trace-analyzer-extension/) | Chrome 扩展 | 浏览器内分析 — 对已在 Perfetto UI 中加载的 trace 执行 SQL 诊断，展示带定位按钮的问题列表，导出 Markdown 报告 | Chrome 浏览器 |
 
-## 功能特性
+### 如何选择
 
-- 解析 BTrace 二进制 trace 文件和 mapping 文件
-- 将内存地址解析为 Java 方法签名
-- 分析 Self Time（直接消耗 CPU 的方法）
-- 分析 Inclusive Time（调用栈中出现的方法）
-- 识别热调用栈（最频繁采样的执行路径）
-- 提供可操作的性能优化建议
-- 转换为 Perfetto protobuf 格式并在 Perfetto UI 中可视化分析（需要 `btrace.jar`）
-- Chrome 扩展支持在 Perfetto UI 中一键自动化分析
+- **btrace-analyzer** — 最快，无需任何配置，几秒内得到 CPU 热点
+- **btrace-perfetto-viewer** — 需要可视化时间线、截图和保存报告时使用；需要 `btrace.jar`
+- **perfetto-trace-analyzer-extension** — 已在 Perfetto UI 中打开 trace 时使用，无需离开浏览器即可完成自动化诊断
 
-## 环境配置
+---
 
-### Kiro 技能
+## 工具一：btrace-analyzer（AI 技能）
 
-Perfetto 可视化技能（`btrace-perfetto-viewer`）依赖以下外部工具，本仓库不包含这些文件：
+### 安装
 
-| 依赖 | 说明 | 获取方式 |
+**Kiro — 工作区范围**（仅对当前项目生效）：
+
+```bash
+cd your-project
+git clone https://github.com/<your-username>/btrace_analyzer.git .kiro/skills/btrace-analyzer
+```
+
+**Kiro — 全局范围**（所有工作区均可使用）：
+
+```bash
+git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/btrace-analyzer
+```
+
+**其他 AI 助手** — 将 [`skills/btrace-analyzer/SKILL.md`](skills/btrace-analyzer/SKILL.md) 作为上下文附加到对话中即可。
+
+### 使用方法
+
+无需任何配置，直接提供 trace 和 mapping 的 URL：
+
+```
+分析这个 BTrace trace 文件：
+- Trace 文件：https://example.com/path/to/sampling
+- Mapping 文件：https://example.com/path/to/sampling-mapping
+```
+
+AI 会下载两个文件，用内联 Python 解析二进制格式，输出：
+
+- **Self Time** — 直接位于栈顶的方法（直接消耗 CPU）
+- **Inclusive Time** — 出现在调用栈任意位置的方法
+- **热调用栈** — 最频繁采样的执行路径（前 5 帧）
+
+---
+
+## 工具二：btrace-perfetto-viewer（AI 技能）
+
+### 依赖
+
+| 依赖 | 说明 | 安装方式 |
 |------|------|----------|
-| Java 8+ | btrace.jar 的运行环境 | 通过包管理器安装 |
-| `btrace.jar` | 将 BTrace 二进制转换为 Perfetto protobuf | 由 APM SDK 或团队工具链提供 |
+| Java 8+ | btrace.jar 的运行环境 | `brew install openjdk`（macOS）或系统包管理器 |
+| `btrace.jar` | 将 BTrace 二进制转换为 Perfetto protobuf | 见下方说明 |
 | `chrome-devtools-mcp` | 浏览器控制 MCP 服务 | `npx -y chrome-devtools-mcp@latest` |
 
-获取 `btrace.jar` 后，放置到已知路径（如 `~/.btrace-analyzer/btrace.jar`）。技能首次使用时会询问路径。
+### 安装 btrace.jar
 
-文本分析技能（`btrace-analyzer`）无外部依赖，使用内联 Python 直接解析二进制格式。
+`btrace.jar` 是 RheaTrace/BTrace trace 处理器，随字节跳动 APM SDK 工具链分发，**不在 Maven 或 npm 上公开发布**。通过以下渠道获取：
 
-### Chrome 扩展
+1. **从 APM SDK 包中获取** — 如果你的应用集成了 BTrace/RheaTrace SDK，JAR 文件通常在 SDK 的 tools 目录下
+2. **从团队内部工具链获取** — 向你的性能/APM 团队索取最新版本
+3. **从 RheaTrace 开源项目构建** — 如果团队使用开源版本，可从 [github.com/bytedance/btrace](https://github.com/bytedance/btrace) 自行构建
 
-无外部依赖。将 `perfetto-trace-analyzer-extension/` 目录以开发者模式加载到 Chrome 即可。
+获取 JAR 后，放置到固定路径：
 
-## 配置
+```bash
+mkdir -p ~/.btrace-analyzer
+cp /path/to/btrace.jar ~/.btrace-analyzer/btrace.jar
+```
+
+验证是否可用：
+
+```bash
+java -jar ~/.btrace-analyzer/btrace.jar --help
+```
+
+### 配置
 
 复制示例配置文件并填入你的值：
 
 ```bash
 cp config.local.json.example config.local.json
 ```
-
-编辑 `config.local.json`：
 
 ```json
 {
@@ -71,7 +116,69 @@ cp config.local.json.example config.local.json
 
 此文件已加入 `.gitignore`，不会被提交。
 
-## 文件格式
+### 安装
+
+**Kiro — 工作区范围**：
+
+```bash
+cd your-project
+git clone https://github.com/<your-username>/btrace_analyzer.git .kiro/skills/btrace-perfetto-viewer
+```
+
+**Kiro — 全局范围**：
+
+```bash
+git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/btrace-perfetto-viewer
+```
+
+**其他 AI 助手** — 将 [`skills/btrace-perfetto-viewer/SKILL.md`](skills/btrace-perfetto-viewer/SKILL.md) 作为上下文附加到对话中即可。
+
+### 使用方法
+
+```
+可视化分析这个 trace 文件：
+- Trace 文件：https://example.com/path/to/sampling
+- Mapping 文件：https://example.com/path/to/sampling-mapping
+```
+
+AI 会自动：
+1. 下载 trace 和 mapping 文件
+2. 通过 `btrace.jar` 转换为 Perfetto protobuf 格式
+3. 启动本地 HTTP 服务并在 MCP 控制的浏览器中打开 Perfetto UI
+4. 运行 SQL 诊断查询（长耗时 slice、帧卡顿、CPU 密集型方法、主线程 I/O）
+5. 追溯每个问题的调用栈
+6. 跳转到每个问题的精确时间范围并截图
+7. 生成按优先级排序的报告到 `trace-analysis/<traceID>/report.md`
+
+---
+
+## 工具三：perfetto-trace-analyzer-extension（Chrome 扩展）
+
+此工具完全在浏览器中运行，**不需要 `btrace.jar` 或任何 AI 技能**，分析的是已在 Perfetto UI 中加载的 trace。
+
+### 安装
+
+1. 打开 Chrome，访问 `chrome://extensions/`
+2. 开启右上角的**开发者模式**
+3. 点击**加载已解压的扩展程序**，选择 `perfetto-trace-analyzer-extension/` 目录
+4. 扩展图标出现在工具栏，仅在 `ui.perfetto.dev` 页面上激活
+
+### 使用方法
+
+1. 打开 `https://ui.perfetto.dev` 并加载你的 trace 文件（支持 Perfetto 原生格式，也支持 `btrace-perfetto-viewer` 输出的 `.pb` 文件）
+2. 点击工具栏中的 **Perfetto Trace Analyzer** 扩展图标
+3. 点击**开始分析**
+4. 扩展自动执行四类诊断查询并追溯每个问题的调用栈，在弹窗中展示按优先级排序的问题列表
+5. 点击问题旁的**定位**按钮，在新标签页中打开 Perfetto 并缩放到该问题的精确时间范围，同时在详情面板中高亮选中对应 slice
+6. 点击**导出报告**，将 Markdown 报告下载为 `perfetto_analysis_report_YYYYMMDD_HHmmss.md`
+
+> CPU 密集型问题为多次调用的聚合统计，没有单一时间戳，显示**聚合问题**标签而非定位按钮。
+
+报告严重等级：**P0**（>500ms）、**P1**（>200ms）、**P2**（>100ms）、**P3**（≤100ms）
+
+---
+
+## 文件格式参考
 
 ### Trace 文件（`sampling`）
 
@@ -113,114 +220,7 @@ cp config.local.json.example config.local.json
 | 字符串长度 | 2 字节 | uint16 LE |
 | 方法签名 | N 字节 | UTF-8 字符串 |
 
-## 安装
-
-### Kiro 技能 — 工作区
-
-将本仓库克隆到项目的 `.kiro/skills/` 目录：
-
-```bash
-cd your-project
-git clone https://github.com/<your-username>/btrace_analyzer.git .kiro/skills/btrace-analyzer
-```
-
-### Kiro 技能 — 全局
-
-克隆到全局技能目录，所有工作区均可使用：
-
-```bash
-git clone https://github.com/<your-username>/btrace_analyzer.git ~/.kiro/skills/btrace-analyzer
-```
-
-### Chrome 扩展
-
-1. 打开 Chrome，访问 `chrome://extensions/`
-2. 开启右上角的**开发者模式**
-3. 点击**加载已解压的扩展程序**，选择 `perfetto-trace-analyzer-extension/` 目录
-4. 扩展图标出现在工具栏，仅在 `ui.perfetto.dev` 页面上激活
-
-## 使用方法
-
-### 文本分析（btrace-analyzer）
-
-快速 CPU 热点分析，无需外部依赖：
-
-```
-分析这个 BTrace trace 文件：
-- Trace 文件：https://example.com/path/to/sampling
-- Mapping 文件：https://example.com/path/to/sampling-mapping
-```
-
-Kiro 会直接解析二进制格式，输出 self time、inclusive time 和热调用栈。
-
-### 可视化分析（btrace-perfetto-viewer）
-
-在 Perfetto UI 中进行可视化时间线分析：
-
-```
-可视化分析这个 trace 文件：
-- Trace 文件：https://example.com/path/to/sampling
-- Mapping 文件：https://example.com/path/to/sampling-mapping
-```
-
-Kiro 会自动：
-1. 下载 trace 和 mapping 文件
-2. 通过 `btrace.jar` 转换为 Perfetto protobuf 格式
-3. 在 MCP 控制的浏览器中打开 Perfetto UI
-4. 运行 SQL 诊断查询（长耗时 slice、帧卡顿、锁竞争、主线程 I/O）
-5. 跳转到每个问题的精确时间范围并截图
-6. 生成按优先级排序的报告到 `trace-analysis/<traceID>/report.md`
-
-### Chrome 扩展（perfetto-trace-analyzer-extension）
-
-对 Perfetto UI 中已加载的 trace 进行自动化分析：
-
-1. 打开 `https://ui.perfetto.dev` 并加载你的 trace 文件
-2. 点击工具栏中的 **Perfetto Trace Analyzer** 扩展图标
-3. 点击**开始分析**
-4. 扩展自动执行四类诊断查询并追溯每个问题的调用栈，在弹窗中展示按优先级排序的问题列表
-5. 点击问题旁的**定位**按钮，在新标签页中打开 Perfetto 并缩放到该问题的精确时间范围，同时在详情面板中高亮选中对应 slice
-6. 点击**导出报告**，将 Markdown 报告下载为 `perfetto_analysis_report_YYYYMMDD_HHmmss.md`
-
-> CPU 密集型问题为多次调用的聚合统计，没有单一时间戳，显示**聚合问题**标签而非定位按钮。
-
-报告严重等级：**P0**（>500ms）、**P1**（>200ms）、**P2**（>100ms）、**P3**（≤100ms）
-
-## 分析输出
-
-### 文本分析
-
-在聊天中输出三类关键报告：
-
-- **Self Time**：直接位于栈顶的方法（正在消耗 CPU）
-- **Inclusive Time**：出现在调用栈任意位置的方法
-- **热调用栈**：最频繁采样的调用路径（前 5 帧）
-
-### 可视化分析
-
-生成带截图的 Markdown 报告，保存到 `trace-analysis/<traceID>/`：
-
-```
-trace-analysis/
-└── xtrace_abc123_huawei/
-    ├── report.md
-    ├── screenshot_overview.png
-    ├── screenshot_1_ishumei.png
-    ├── screenshot_2_monitor_lock.png
-    └── ...
-```
-
-报告中每个问题包含严重等级（P0-P3）、问题描述、涉及方法、耗时、影响、优化建议，以及缩放到精确时间范围的 Perfetto 时间线截图。
-
-### Chrome 扩展
-
-点击**导出报告**后，单个 Markdown 文件下载到默认下载目录。每个问题包含：
-
-- 严重等级（P0-P3）、标题、涉及方法、耗时
-- 调用栈（最多 25 帧）
-- 优化建议
-
-弹窗中每个有具体时间戳的问题旁都有**定位**按钮，点击后在新标签页打开 Perfetto 并缩放到该 slice 的精确时间范围，同时在详情面板中选中高亮该 slice。每个新标签页的标题会设置为问题名称，方便区分多个已定位的标签页。CPU 密集型问题为聚合统计，显示**聚合问题**标签而非定位按钮。
+---
 
 ## 常见性能模式
 
