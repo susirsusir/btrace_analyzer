@@ -197,6 +197,11 @@ async function runAnalysisCore(tabId) {
   const issues = classifyIssues(reportData);
   console.log('[SW] issues count:', issues.length, issues.map(i => `[${i.severity}] ${i.title}`));
 
+  // Persist results in session storage so the popup can restore them on re-open.
+  try {
+    await chrome.storage.session.set({ lastAnalysis: { issues, reportData } });
+  } catch (_) { /* session storage unavailable; non-fatal */ }
+
   try {
     await chrome.runtime.sendMessage({
       action: "complete",
@@ -338,29 +343,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.warn('[SW] zoomToProblem: no Perfetto tab found');
           return;
         }
-        await sendToContentScript(targetTabId, (tsStr, durStr) => {
-            try {
-              const timeline = window.app.trace.timeline;
-              const vw = timeline._visibleWindow;
-              if (!vw) return 'no visibleWindow';
-              
-              const HPT = vw.start.constructor;
-              const HPTS = vw.constructor;
-              
-              const ts = BigInt(tsStr);
-              const dur = BigInt(durStr);
-              
-              // Add 33% padding
-              const padding = dur / 3n;
-              const startTime = new HPT({ integral: ts - padding, fractional: 0 });
-              const totalDur = Number(dur + padding * 2n);
-              
-              timeline.setVisibleWindow(new HPTS(startTime, totalDur));
-              return 'zoom OK';
-            } catch (e) {
-              return 'zoom error: ' + e.message;
-            }
-          }, [message.ts, message.dur]);
+        // Re-inject content scripts to ensure zoomToTimeRange is available
+        // (page may have been refreshed since startAnalysis ran).
+        try {
+          await injectContentScript(targetTabId, ["diagnostics.js", "callstack.js", "content.js"]);
+        } catch (_) { /* ignore inject errors on zoom */ }
+        const zoomResult = await sendToContentScript(targetTabId,
+          (tsStr, durStr) => window.__perfettoAnalyzer.zoomToTimeRange(tsStr, durStr),
+          [message.ts, message.dur]);
+        console.log('[SW] zoomToProblem result:', zoomResult);
+        // NOTE: We intentionally do NOT switch the tab to foreground here.
+        // Switching tabs closes the popup and loses its state. The user can
+        // manually switch to the Perfetto tab to see the zoomed timeline.
       } catch (e) {
         console.error('[SW] ZoomToProblem error:', e);
       }

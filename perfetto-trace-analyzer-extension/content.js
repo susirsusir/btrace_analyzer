@@ -50,4 +50,36 @@
   // Expose on the shared namespace (diagnostics.js initialises it first)
   window.__perfettoAnalyzer = window.__perfettoAnalyzer || {};
   window.__perfettoAnalyzer.checkTraceLoaded = checkTraceLoaded;
+
+  /**
+   * Zoom the Perfetto timeline to a specific time range.
+   * Called from background.js via sendToContentScript.
+   *
+   * @param {string} tsStr - Slice timestamp in nanoseconds (as string to avoid BigInt serialization issues).
+   * @param {string} durStr - Slice duration in nanoseconds (as string).
+   * @returns {string} 'zoom OK' or an error message.
+   */
+  function zoomToTimeRange(tsStr, durStr) {
+    try {
+      const timeline = window.app.trace.timeline;
+      const vw = timeline._visibleWindow;
+      if (!vw) return 'no visibleWindow';
+
+      const HPT = vw.start.constructor;
+      const HPTS = vw.constructor;
+
+      const ts = BigInt(tsStr);
+      const dur = BigInt(durStr);
+      const padding = dur / BigInt(3);
+      const startTime = new HPT({ integral: ts - padding, fractional: 0 });
+      const totalDur = Number(dur + padding * BigInt(2));
+
+      timeline.setVisibleWindow(new HPTS(startTime, totalDur));
+      return 'zoom OK';
+    } catch (e) {
+      return 'zoom error: ' + e.message;
+    }
+  }
+
+  window.__perfettoAnalyzer.zoomToTimeRange = zoomToTimeRange;
 })();

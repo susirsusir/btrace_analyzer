@@ -103,9 +103,12 @@ function renderIssues(issues) {
     // View button (only if we have ts and dur)
     if (issue.ts && issue.dur) {
       const viewBtn = document.createElement("button");
-      viewBtn.textContent = "查看";
+      viewBtn.textContent = "定位";
+      viewBtn.title = "定位到 Perfetto 时间轴对应位置，点击后切换到 Perfetto 标签页查看";
       viewBtn.style.cssText = "padding: 4px 8px; font-size: 12px; color: #fff; background: #4285f4; border: none; border-radius: 4px; cursor: pointer; flex-shrink: 0; margin-left: 8px;";
       viewBtn.onclick = () => {
+        viewBtn.textContent = "✓ 已定位";
+        viewBtn.style.background = "#34a853";
         chrome.runtime.sendMessage({
           action: "zoomToProblem",
           ts: issue.ts,
@@ -195,5 +198,14 @@ chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
   }
 });
 
-// Initialise in Idle state
-setIdle();
+// Initialise: try to restore last analysis from session storage, else show Idle.
+(async () => {
+  try {
+    const stored = await chrome.storage.session.get("lastAnalysis");
+    if (stored.lastAnalysis && stored.lastAnalysis.issues && stored.lastAnalysis.issues.length > 0) {
+      setComplete(stored.lastAnalysis.issues, stored.lastAnalysis.reportData);
+      return;
+    }
+  } catch (_) { /* session storage unavailable */ }
+  setIdle();
+})();

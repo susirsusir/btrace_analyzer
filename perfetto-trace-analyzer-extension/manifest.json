@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Perfetto Trace Analyzer",
-  "version": "1.0.9",
+  "version": "1.0.12",
   "description": "自动化分析 Perfetto UI 中的 BTrace/xTrace trace 数据",
-  "permissions": ["activeTab", "scripting", "downloads"],
+  "permissions": ["activeTab", "scripting", "downloads", "storage"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
