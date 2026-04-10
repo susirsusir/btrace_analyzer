@@ -178,8 +178,11 @@ For automated analysis of a trace already loaded in Perfetto UI:
 1. Open `https://ui.perfetto.dev` and load your trace file
 2. Click the **Perfetto Trace Analyzer** extension icon
 3. Click **Start Analysis**
-4. The extension will run four diagnostic queries, trace call stacks for each issue, and generate a Markdown report
-5. The report is automatically downloaded as `perfetto_analysis_report_YYYYMMDD_HHmmss.md`
+4. The extension runs four diagnostic queries and traces call stacks for each issue, then displays a prioritized issue list in the popup
+5. Click **Locate** next to any issue to open a new tab zoomed to that exact time range with the slice selected and highlighted in the details panel
+6. Click **Export Report** to download the Markdown report as `perfetto_analysis_report_YYYYMMDD_HHmmss.md`
+
+> CPU-heavy issues are aggregate statistics (no single timestamp) and show an **Aggregated** badge instead of a Locate button.
 
 Severity levels in the report: **P0** (>500ms), **P1** (>200ms), **P2** (>100ms), **P3** (≤100ms)
 
@@ -211,13 +214,13 @@ Each issue in the report includes severity (P0-P3), description, affected method
 
 ### Chrome Extension
 
-A single Markdown file downloaded to your default downloads folder. Each issue includes:
+A single Markdown file downloaded to your default downloads folder when you click **Export Report**. Each issue includes:
 
 - Severity (P0-P3), title, affected method, duration
 - Call stack (up to 25 frames)
 - Optimization suggestion
 
-Multiple analyses are stored in separate subdirectories and never overwrite each other.
+The popup also shows a **Locate** button for each issue with a specific timestamp — clicking it opens a new Perfetto tab zoomed to that slice's exact time range with the slice selected in the details panel. Each tab's title is set to the issue name so multiple located tabs are easy to distinguish. CPU-heavy issues are aggregate statistics and show an **Aggregated** badge instead.
 
 ## Common Performance Patterns
 
