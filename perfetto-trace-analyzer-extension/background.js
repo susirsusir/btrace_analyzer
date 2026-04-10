@@ -379,8 +379,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
+        // Wait an extra 1s after engine is ready for Perfetto's initial render
+        // to complete. Without this, setVisibleWindow gets overwritten by the
+        // React render that resets the timeline to show the full trace.
+        await new Promise(r => setTimeout(r, 1000));
+
         // Inject content scripts then zoom.
         await injectContentScript(newTabId, ["diagnostics.js", "callstack.js", "content.js"]);
+        
+        // Verify injection succeeded
+        const checkResult = await sendToContentScript(newTabId,
+          () => ({
+            hasAnalyzer: !!window.__perfettoAnalyzer,
+            hasZoom: !!(window.__perfettoAnalyzer && window.__perfettoAnalyzer.zoomToTimeRange),
+            hasEngine: !!(window.app && window.app.trace && window.app.trace.engine),
+          }));
+        console.log('[SW] injection check:', JSON.stringify(checkResult));
+        
         const zoomResult = await sendToContentScript(newTabId,
           (tsStr, durStr) => window.__perfettoAnalyzer.zoomToTimeRange(tsStr, durStr),
           [message.ts, message.dur]);

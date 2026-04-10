@@ -70,11 +70,36 @@
 
       const ts = BigInt(tsStr);
       const dur = BigInt(durStr);
-      const padding = dur / BigInt(3);
-      const startTime = new HPT({ integral: ts - padding, fractional: 0 });
-      const totalDur = Number(dur + padding * BigInt(2));
 
-      timeline.setVisibleWindow(new HPTS(startTime, totalDur));
+      // HPT constructor: new HPT(integral: BigInt, fractional: number)
+      // Do NOT add padding — padding can push span.end beyond traceInfo.end,
+      // causing fitWithin() to clamp the entire span back to trace start.
+      const startTime = new HPT(ts, 0);
+      const totalDur = Number(dur);
+      const targetSpan = new HPTS(startTime, totalDur);
+
+      // Apply zoom. Perfetto may still be initialising and will reset
+      // _visibleWindow after our call. We watch for that and re-apply
+      // up to 10 times over 2 seconds to ensure the zoom sticks.
+      timeline.setVisibleWindow(targetSpan);
+
+      let reapplyCount = 0;
+      const MAX_REAPPLY = 10;
+      const expectedStart = String(ts);
+
+      const reapply = () => {
+        if (reapplyCount >= MAX_REAPPLY) return;
+        const current = String(timeline._visibleWindow.start.integral);
+        if (current !== expectedStart) {
+          reapplyCount++;
+          timeline.setVisibleWindow(targetSpan);
+        }
+        if (reapplyCount < MAX_REAPPLY) {
+          setTimeout(reapply, 200);
+        }
+      };
+      setTimeout(reapply, 200);
+
       return 'zoom OK';
     } catch (e) {
       return 'zoom error: ' + e.message;
