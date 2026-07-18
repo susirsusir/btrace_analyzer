@@ -389,6 +389,16 @@ hprof-conv -z <input.hprof> <output_converted.hprof>
 - The hprof file may be large (100MB+). Parse efficiently using seek-based access, not full file read.
 - If the file is too large for a single pass, process chunks incrementally.
 
+## Output Convention
+
+Save the final analysis report to `hprof_analysis/<hprof_filename_without_extension>_report.md`.
+
+Examples:
+- Input: `dump.hprof` → Output: `hprof_analysis/dump_report.md`
+- Input: `taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` → Output: `hprof_analysis/taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`
+
+If the `hprof_analysis/` directory doesn't exist, create it.
+
 ## Severity Classification for Memory Issues
 
 | Severity | Threshold | Meaning |
