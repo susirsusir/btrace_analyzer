@@ -26,6 +26,8 @@ xxd -l 32 "<hprof_file>"
 - **hprof-heap (standard)**: stated header size is small (typically 128)
 - **hprof-libs (Android 7.0+)**: stated header size is large (typically 13102+)
 
+> **Detailed format comparison**: See [references/hprof-libs-vs-heap.md](references/hprof-libs-vs-heap.md) for a thorough breakdown of differences between the two formats, including why `hprof-conv` loses significant data on hprof-libs files.
+
 ### Step 2: Detect Format and Record Layout
 
 ```python
