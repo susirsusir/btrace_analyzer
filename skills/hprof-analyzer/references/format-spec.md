@@ -71,10 +71,15 @@ hprof-libs format (variable length per entry):
 
 ### OBJECT_DUMP (0x0004)
 ```
-object_id:      uint32 LE
-class_serial:   uint32 LE
-pad:            uint32 LE
-field_data:     variable (depends on class layout)
+hprof-libs format (marker-based table, same as CLASS_DUMP):
+  [entry_data(variable)] [00 40 00 class_serial(4B)]
+  
+  entry_data contains:
+    object_id(4B LE) + field_data(variable)
+  
+  Multiple entries per chunk, separated by 00 40 00 XX markers.
+  The XX byte is the class_serial (same numbering as CLASS_DUMP).
+  A 4-byte header may precede the first marker.
 ```
 
 ### SAMPLE_GC_HEAP (0x0005)

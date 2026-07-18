@@ -281,7 +281,13 @@ Extract object instances and their field values:
 
 ```python
 def parse_object_dumps(chunks, filepath):
-    """Parse OBJECT_DUMP chunks to get object instances."""
+    """Parse OBJECT_DUMP chunks to get object instances.
+    
+    hprof-libs OBJECT_DUMP uses the same marker-based table format as CLASS_DUMP:
+    - Each entry: [data_before_marker] [00 40 00 XX marker]
+    - The marker's XX byte is the class_serial
+    - Entry data before marker contains object_id and field values
+    """
     objects = []  # list of {object_id, class_serial, payload}
     
     for pos, tag, length in chunks:
@@ -292,17 +298,29 @@ def parse_object_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        if len(payload) < 8:
+        # Find first marker to skip any header
+        first_marker = payload.find(b'\x00\x40\x00')
+        if first_marker == -1:
             continue
         
-        obj_id = struct.unpack_from('<I', payload, 0)[0]
-        class_serial = struct.unpack_from('<I', payload, 4)[0]
-        
-        objects.append({
-            'object_id': obj_id,
-            'class_serial': class_serial,
-            'payload': payload[8:],
-        })
+        p = first_marker + 4  # Skip past first marker
+        while p < len(payload) - 4:
+            next_marker = payload.find(b'\x00\x40\x00', p)
+            if next_marker == -1 or next_marker + 4 >= len(payload):
+                break
+            
+            entry_data = payload[p:next_marker]
+            class_serial = payload[next_marker + 3]
+            
+            if len(entry_data) >= 4:
+                obj_id = struct.unpack_from('<I', entry_data, 0)[0]
+                objects.append({
+                    'object_id': obj_id,
+                    'class_serial': class_serial,
+                    'payload': entry_data[4:],
+                })
+            
+            p = next_marker + 4
     
     return objects
 ```
