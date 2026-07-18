@@ -139,23 +139,29 @@ def parse_string_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Format: string_id(4B LE) + string_length(2B LE) + string_data
+        # hprof-libs STRING_DUMP format:
+        # string_text + 0x01 + 7_zero_bytes + 1B_value + 4B_ref
+        # The 7 zeros and 1B_value are metadata; the 4B_ref is a string_id/pointer.
+        # IMPORTANT: The first entry in a chunk may have a garbage first byte
+        # (carry-over from previous chunk's ref), so validate text is printable.
+        
         p = 0
-        while p + 6 <= len(payload):
-            string_id = struct.unpack_from('<I', payload, p)[0]
-            string_len = struct.unpack_from('<H', payload, p+4)[0]
-            
-            if string_len > 5000 or string_len < 0:
+        while p < len(payload) - 13:
+            sep = payload.find(b'\x01', p)
+            if sep == -1:
                 break
             
-            if p + 6 + string_len <= len(payload):
-                try:
-                    text = payload[p+6:p+6+string_len].decode('utf-8')
-                    strings[string_id] = text
-                except UnicodeDecodeError:
-                    pass
+            text_bytes = payload[p:sep]
             
-            p += 6 + string_len
+            # Validate: all bytes must be printable ASCII
+            if len(text_bytes) > 0 and all(32 <= b < 127 for b in text_bytes):
+                meta = payload[sep+1:sep+13]
+                if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                    string_id = struct.unpack_from('<I', meta, 8)[0]
+                    text = text_bytes.decode('utf-8')
+                    strings[string_id] = text
+            
+            p = sep + 13
     
     return strings
 ```
@@ -227,23 +233,24 @@ def parse_load_data(chunks, filepath):
         # In hprof-libs, fields use: field_name + 0x01 + metadata
         fields = []
         p = 8
-        while p + 9 <= len(payload):
+        while p < len(payload) - 13:
             name_end = payload.find(b'\x01', p)
             if name_end == -1:
                 break
             
-            field_name = payload[p:name_end].decode('utf-8', errors='replace')
+            field_name_bytes = payload[p:name_end]
             
-            # Parse metadata after 0x01 separator
-            meta = payload[name_end+1:name_end+9]
+            # Validate: field name must be printable ASCII
+            if len(field_name_bytes) > 0 and all(32 <= b < 127 for b in field_name_bytes):
+                meta = payload[name_end+1:name_end+13]
+                if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                    field_name = field_name_bytes.decode('utf-8')
+                    fields.append({
+                        'name': field_name,
+                        'offset': p,
+                    })
             
-            fields.append({
-                'name': field_name,
-                'offset': p,
-                'meta': meta.hex() if len(meta) >= 8 else meta.hex(),
-            })
-            
-            p = name_end + 9
+            p = name_end + 13
         
         if fields:
             field_layouts[class_serial] = fields
