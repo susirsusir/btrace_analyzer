@@ -4,7 +4,8 @@
       "mcp__chrome-devtools__new_page",
       "mcp__chrome-devtools__list_pages",
       "Read(//Users/suzhanfeng/.kiro/**)",
-      "Read(//Users/suzhanfeng/.claude/**)"
+      "Read(//Users/suzhanfeng/.claude/**)",
+      "Bash(java *)"
     ]
   }
 }
