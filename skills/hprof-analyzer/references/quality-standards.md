@@ -82,7 +82,19 @@
 
 要达到 B 级（17+ 分），需要：
 
-1. **完善类名映射** — 从 STRING_DUMP 中提取的类名需要覆盖更多 class_serial
+1. **完善类名映射** — 从 STRING_DUMP/DYN_LIB 中提取的类名需要覆盖更多 class_serial
 2. **解析对象字段值** — 从 OBJECT_DUMP 的 field_data 中提取实际字段值，看到对象持有什么引用
 3. **深化 GC Root 分析** — 解析 GC Root 的具体栈帧，找到是谁持有了这些对象
 4. **关联 LOAD_DATA 字段名** — 用字段名解释对象内部结构，定位泄漏点
+
+## 已知限制
+
+### hprof-libs 类名映射限制
+
+Android hprof-libs 格式中，CLASS_DUMP 只存储 class_serial（0-255 的紧凑索引）和 instance_count，**不直接存储类名**。类名存储在 STRING_DUMP/DYN_LIB 中以 string_id 形式存在，但：
+
+- class_serial 和 string_id 是**完全不同的编号空间**
+- 没有标准的映射关系可以交叉引用
+- 只能通过启发式方法（如类名包含 serial 号后缀）进行模糊匹配
+
+这意味着**无法保证 100% 的类名覆盖率**。达到 50%+ 可识别类名即为实用级别。
