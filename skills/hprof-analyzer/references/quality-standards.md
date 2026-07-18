@@ -1,4 +1,4 @@
-d# HPROF 分析报告质量评估标准
+# HPROF 分析报告质量评估标准
 
 ## 核心原则
 
@@ -72,17 +72,17 @@ d# HPROF 分析报告质量评估标准
 | 维度 | 得分 | 说明 |
 |------|------|------|
 | 类名可识别度 | 2/4 | 部分有名字（`renderViewCallback`, `prime239v1`），但仍有 `class_serial_XX` |
-| 对象实例关联 | 2/4 | 能匹配 CLASS_DUMP 和 OBJECT_DUMP，但类名映射不完整 |
-| GC Root 分析 | 1/4 | 只看到 3 条 JAVA_STACK，无具体引用链 |
+| 对象实例关联 | 3/4 | CLASS_DUMP 和 OBJECT_DUMP 的 76 个 class_serial 正确匹配 |
+| GC Root 分析 | 1/4 | 只看到 3 条 JAVA_STACK，无具体栈信息 |
 | 泄漏诊断 actionable | 1/4 | 列出了高实例数类，但无法知道具体是哪个方法/场景导致的 |
-| 数据完整性 | 3/4 | 字符串 1469/1469 (100%), CLASS_DUMP 87/87, OBJECT_DUMP 1450/1450 |
-| **总分** | **9/20** | **D 级 — 勉强可用** |
+| 数据完整性 | 3/4 | 字符串 2072/2072 (100%), CLASS_DUMP 87/87, OBJECT_DUMP 1450/1450 |
+| **总分** | **10/20** | **D 级 — 勉强可用** |
 
 ## 改进方向
 
 要达到 B 级（17+ 分），需要：
 
-1. **完善类名映射** — 从 STRING_DUMP/DYN_LIB 中提取的类名需要覆盖更多 class_serial
+1. **完善类名映射** — 需要 ProGuard/R8 mapping 文件将 class_serial 映射到类名
 2. **解析对象字段值** — 从 OBJECT_DUMP 的 field_data 中提取实际字段值，看到对象持有什么引用
 3. **深化 GC Root 分析** — 解析 GC Root 的具体栈帧，找到是谁持有了这些对象
 4. **关联 LOAD_DATA 字段名** — 用字段名解释对象内部结构，定位泄漏点
@@ -98,3 +98,20 @@ Android hprof-libs 格式中，CLASS_DUMP 只存储 class_serial（0-255 的紧�
 - 只能通过启发式方法（如类名包含 serial 号后缀）进行模糊匹配
 
 这意味着**无法保证 100% 的类名覆盖率**。达到 50%+ 可识别类名即为实用级别。
+
+### btrace.jar 不提供 hprof 解析能力
+
+btrace.jar 是字节跳动研发的 xtrace/btrace 性能追踪解码工具，包含：
+- `ProguardMappingDecoder` — 解析 ProGuard mapping 文件（用于 xtrace 追踪数据）
+- `SamplingTraceDecoder` — 解析采样追踪数据
+- `StackTraceConvertor` — 栈帧转换
+
+但 btrace.jar **不包含 hprof 堆转储解析器**，也无法直接帮助映射 class_serial 到类名。ProGuard mapping 文件需要与 xtrace 追踪文件配合使用，不适用于 hprof 格式。
+
+### 达到 B 级的必要条件
+
+要突破当前 D 级限制，需要以下任一外部信息：
+- **ProGuard/R8 mapping 文件**：可以将 class_serial 映射到混淆后的类名
+- **完整的 string_id ↔ class_serial 映射表**：存在于某些 Android 版本的 hprof 扩展中
+- **MAT .mat 诊断数据**：Eclipse Memory Analyzer 生成的完整对象图分析
+- **Android Debug Bridge (ADB) 的 heap dump 工具**：可能提供更完整的元数据
