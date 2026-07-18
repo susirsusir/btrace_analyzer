@@ -172,7 +172,17 @@ Extract class metadata (serial numbers, instance counts):
 
 ```python
 def parse_class_dumps(chunks, filepath):
-    """Parse CLASS_DUMP chunks to get class metadata."""
+    """Parse CLASS_DUMP chunks to get class metadata.
+    
+    hprof-libs CLASS_DUMP format:
+    - Each chunk contains a table of class entries
+    - Entry format: [type_code(1B)] [instance_count(1B)] [field_info(variable)] [marker(4B: 0x004000XX)]
+    - The marker's XX byte is the NEXT class_serial (sequential counter)
+    - type_code values: 0x02 = has instances, 0x0A = no instances, 0x0B = static/other
+    - instance_count: 0xFF = unknown/special, otherwise actual count
+    - field_info: variable-length data encoding class properties
+    - A 7-byte header precedes the first entry in each chunk
+    """
     classes = {}  # class_serial -> {num_instances, ...}
     
     for pos, tag, length in chunks:
@@ -183,25 +193,32 @@ def parse_class_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        if len(payload) < 8:
+        # Find first marker to skip header
+        first_marker = payload.find(b'\x00\x40\x00')
+        if first_marker == -1:
             continue
         
-        class_serial = struct.unpack_from('<I', payload, 0)[0]
+        p = first_marker + 4  # Skip past first marker
         
-        # In standard hprof-heap: num_instances at offset 8
-        # In hprof-libs: format differs; try offset 8 first
-        num_instances = struct.unpack_from('<I', payload, 8)[0]
-        
-        # Validate: if num_instances looks like garbage (>100M),
-        # try alternative offsets
-        if num_instances > 100_000_000:
-            # Try reading as 2B at offset 4
-            num_instances = struct.unpack_from('<H', payload, 4)[0]
-        
-        classes[class_serial] = {
-            'serial': class_serial,
-            'num_instances': num_instances,
-        }
+        while p < len(payload) - 4:
+            next_marker = payload.find(b'\x00\x40\x00', p)
+            if next_marker == -1:
+                break
+            
+            entry_data = payload[p:next_marker]
+            class_serial = payload[next_marker + 3]  # The XX byte of marker
+            
+            if len(entry_data) >= 2:
+                instance_count = entry_data[1]
+                
+                # 0xFF means unknown/special, skip
+                if instance_count != 0xFF:
+                    classes[class_serial] = {
+                        'serial': class_serial,
+                        'num_instances': instance_count,
+                    }
+            
+            p = next_marker + 4
     
     return classes
 ```
