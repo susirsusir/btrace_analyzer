@@ -60,10 +60,13 @@ static_field_data:  variable (field_offset(4B) + class_serial(4B) pairs)
 
 ### STRING_DUMP (0x0010)
 ```
-string_id:      uint32 LE
-string_length:  uint16 LE
-string_data:    string_length bytes of UTF-8 text
-(next entry follows immediately)
+hprof-libs format (variable length per entry):
+  string_text:    variable bytes (printable ASCII, terminated by 0x01)
+  separator:      0x01
+  zeros:          7 bytes (0x00)
+  value:          1 byte (metadata)
+  ref:            4 bytes LE (string_id or pointer)
+  Total entry:    len(string_text) + 13 bytes
 ```
 
 ### OBJECT_DUMP (0x0004)
@@ -76,10 +79,13 @@ field_data:     variable (depends on class layout)
 
 ### SAMPLE_GC_HEAP (0x0005)
 ```
-root_kind:      uint32 LE (0-10)
-root_info:      uint32 LE (context-specific)
-object_id:      uint32 LE (reachable object)
-(next entry follows immediately, 12 bytes per entry)
+hprof-libs format (20 bytes per entry):
+  object_id:      uint32 LE (reachable object)
+  root_info:      uint32 LE (context-specific)
+  root_kind:      uint16 LE (0-10)
+  class_serial:   uint32 LE (often constant system class)
+  pad:            uint32 LE
+  extra:          uint16 LE
 ```
 
 **Root kinds:**

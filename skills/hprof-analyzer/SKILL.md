@@ -307,20 +307,22 @@ def parse_gc_heap_samples(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Standard format: root_kind(4B) + root_info(4B) + object_id(4B) = 12 bytes
-        # Android hprof-libs may use different entry sizes.
-        # Heuristic: try 12-byte entries first, then fall back to analyzing
-        # the raw binary for patterns (e.g., repeated class_serial values).
+        # hprof-libs SAMPLE_GC_HEAP format:
+        # Each entry is 20 bytes:
+        #   object_id(4B LE) + root_info(4B LE) + root_kind(2B LE) +
+        #   class_serial(4B LE) + pad(4B LE) + extra(2B LE)
+        # root_kind values: 0=JAVA_STACK, 1=NATIVE_STACK, 2=SYSTEM_CLASS,
+        #   3=GC_STATIC_FIELD, 4=GC_LOCAL, 5=GC_MONITOR, 6=GC_JAVA_FRAME,
+        #   7=GC_NATIVE_FRAME, 8=UNREACHABLE, 9=DAEMON_WORKER, 10=UNKNOWN
+        # class_serial is often a constant system class (e.g., 0x78c6096f = java/lang/Object)
         
         p = 0
-        valid_entries = 0
-        
-        while p + 12 <= len(payload):
-            root_kind = struct.unpack_from('<I', payload, p)[0]
+        while p + 20 <= len(payload):
+            object_id = struct.unpack_from('<I', payload, p)[0]
             root_info = struct.unpack_from('<I', payload, p+4)[0]
-            object_id = struct.unpack_from('<I', payload, p+8)[0]
+            root_kind = struct.unpack_from('<H', payload, p+8)[0]
+            class_serial = struct.unpack_from('<I', payload, p+10)[0]
             
-            # Validate: root_kind should be 0-10 for standard format
             if root_kind <= 10 and object_id > 0:
                 kind_names = {
                     0: 'JAVA_STACK', 1: 'NATIVE_STACK', 2: 'SYSTEM_CLASS',
@@ -330,28 +332,15 @@ def parse_gc_heap_samples(chunks, filepath):
                 }
                 
                 gc_roots.append({
-                    'kind': kind_names.get(root_kind, f'0x{root_kind:08X}'),
+                    'kind': kind_names.get(root_kind, f'0x{root_kind:04X}'),
                     'root_kind_raw': root_kind,
                     'root_info': root_info,
                     'object_id': object_id,
+                    'class_serial': class_serial,
                 })
-                valid_entries += 1
-                p += 12
+                p += 20
             else:
-                # Not a valid 12-byte entry; try smaller entry size
-                # In hprof-libs, entries may be 8 bytes or variable size
                 break
-        
-        # If no valid 12-byte entries, the data may use hprof-libs format
-        # Report raw chunk size for manual analysis
-        if valid_entries == 0:
-            gc_roots.append({
-                'kind': 'HPROF_LIBS_BINARY',
-                'root_kind_raw': -1,
-                'root_info': length,
-                'object_id': 0,
-                'raw_size': len(payload),
-            })
     
     return gc_roots
 ```
