@@ -168,20 +168,26 @@ def parse_string_dumps(chunks, filepath):
 
 ### Step 5: Parse CLASS_DUMP Chunks
 
-Extract class metadata (serial numbers, instance counts):
+Extract class metadata (serial numbers, instance counts).
+
+**Two observed layouts:**
+
+1. **Small chunks** (~64B): marker-based table using `00 40 00 XX` separators
+2. **Large chunks** (>1KB, e.g., @0x56bfd1 len=51989): dense packed records, **5 bytes each**, with `89 6F` as record terminator/marker
 
 ```python
 def parse_class_dumps(chunks, filepath):
     """Parse CLASS_DUMP chunks to get class metadata.
     
-    hprof-libs CLASS_DUMP format:
-    - Each chunk contains a table of class entries
-    - Entry format: [type_code(1B)] [instance_count(1B)] [field_info(variable)] [marker(4B: 0x004000XX)]
-    - The marker's XX byte is the NEXT class_serial (sequential counter)
-    - type_code values: 0x02 = has instances, 0x0A = no instances, 0x0B = static/other
-    - instance_count: 0xFF = unknown/special, otherwise actual count
-    - field_info: variable-length data encoding class properties
-    - A 7-byte header precedes the first entry in each chunk
+    Handles TWO formats:
+    
+    Format A - Small chunks (marker-based):
+      Entry format: [type_code(1B)] [instance_count(1B)] [field_info(variable)] [00 40 00 XX]
+      The marker's XX byte is the NEXT class_serial (sequential counter)
+    
+    Format B - Large chunks (dense packed):
+      Fixed 5-byte records: [class_serial(1B)] [instance_count(1B)] [type_code(1B)] [0x89] [0x6F]
+      No header, no markers between records
     """
     classes = {}  # class_serial -> {num_instances, ...}
     
@@ -193,32 +199,52 @@ def parse_class_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Find first marker to skip header
-        first_marker = payload.find(b'\x00\x40\x00')
-        if first_marker == -1:
-            continue
-        
-        p = first_marker + 4  # Skip past first marker
-        
-        while p < len(payload) - 4:
-            next_marker = payload.find(b'\x00\x40\x00', p)
-            if next_marker == -1:
-                break
-            
-            entry_data = payload[p:next_marker]
-            class_serial = payload[next_marker + 3]  # The XX byte of marker
-            
-            if len(entry_data) >= 2:
-                instance_count = entry_data[1]
+        # Detect format: large chunks (>1KB) with 89 6F pattern use dense format
+        if length > 1000 and b'\x89\x6f' in payload[:200]:
+            # Format B: dense packed 5-byte records
+            p = 0
+            while p + 5 <= len(payload):
+                class_serial = payload[p]
+                instance_count = payload[p+1]
+                type_code = payload[p+2]
                 
-                # 0xFF means unknown/special, skip
-                if instance_count != 0xFF:
-                    classes[class_serial] = {
-                        'serial': class_serial,
-                        'num_instances': instance_count,
-                    }
+                # Validate: type_code should be valid (0x02, 0x0A, 0x0B, etc.)
+                if type_code in (0x02, 0x0A, 0x0B, 0x0C, 0x0D):
+                    if instance_count != 0xFF:
+                        classes[class_serial] = {
+                            'serial': class_serial,
+                            'num_instances': instance_count,
+                            'type_code': type_code,
+                        }
+                
+                p += 5
+        else:
+            # Format A: marker-based table
+            first_marker = payload.find(b'\x00\x40\x00')
+            if first_marker == -1:
+                continue
             
-            p = next_marker + 4
+            p = first_marker + 4  # Skip past first marker
+            
+            while p < len(payload) - 4:
+                next_marker = payload.find(b'\x00\x40\x00', p)
+                if next_marker == -1:
+                    break
+                
+                entry_data = payload[p:next_marker]
+                class_serial = payload[next_marker + 3]  # The XX byte of marker
+                
+                if len(entry_data) >= 2:
+                    instance_count = entry_data[1]
+                    
+                    # 0xFF means unknown/special, skip
+                    if instance_count != 0xFF:
+                        classes[class_serial] = {
+                            'serial': class_serial,
+                            'num_instances': instance_count,
+                        }
+                
+                p = next_marker + 4
     
     return classes
 ```
@@ -279,24 +305,26 @@ def parse_load_data(chunks, filepath):
 
 Extract object instances and their field values.
 
-**Reverse-engineered layout**: OBJECT_DUMP uses `00 40 00 XX` marker-based table format. Each entry is typically **5-9 bytes**, not variable-length field_data as previously documented.
+**Two observed layouts:**
+
+1. **Small chunks**: marker-based table using `00 40 00 XX` separators, entries 5-9 bytes each
+2. **Large chunks** (>1KB): dense packed records with fixed width, similar to CLASS_DUMP
 
 ```python
 def parse_object_dumps(chunks, filepath):
     """Parse OBJECT_DUMP chunks to get object instances.
     
-    hprof-libs OBJECT_DUMP uses marker-based table format with 00 40 00 XX separators:
+    Handles TWO formats:
+    
+    Format A - Small chunks (marker-based):
       [entry_data(variable)] [00 40 00 class_serial(1B)]
+      Entry structure (typically 5-9 bytes):
+        - object_id(4B LE)
+        - type_code(1B) — e.g., 0x0B, 0x02, 0xFF
+        - [padding/field_data(variable, often small)]
     
-    Entry structure (typically 5-9 bytes):
-      - object_id(4B LE)
-      - type_code(1B) — e.g., 0x0B, 0x02, 0xFF
-      - [padding/field_data(variable, often small)]
-    
-    The XX byte of the marker is the NEXT class_serial (sequential counter).
-    A 4-byte header may precede the first marker.
-    
-    Returns: list of {object_id, class_serial, payload}
+    Format B - Large chunks (dense packed):
+      Fixed-width records with 00 40 00 markers or 89 6F terminators
     """
     objects = []  # list of {object_id, class_serial, payload}
     
@@ -308,29 +336,50 @@ def parse_object_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Find first marker to skip any header
-        first_marker = payload.find(b'\x00\x40\x00')
-        if first_marker == -1:
-            continue
-        
-        p = first_marker + 4  # Skip past first marker
-        while p < len(payload) - 4:
-            next_marker = payload.find(b'\x00\x40\x00', p)
-            if next_marker == -1 or next_marker + 4 >= len(payload):
-                break
+        # Detect format: large chunks with dense pattern
+        if length > 1000 and b'\x89\x6f' in payload[:200]:
+            # Format B: dense packed records (similar to CLASS_DUMP)
+            # Try parsing as 5-byte records with 89 6F terminator
+            p = 0
+            while p + 5 <= len(payload):
+                # Check for 89 6F terminator at expected position
+                if payload[p+3] == 0x89 and payload[p+4] == 0x6F:
+                    obj_id = struct.unpack_from('<I', payload, p)[0]
+                    class_serial = payload[p+3] if p+3 < len(payload) else 0
+                    
+                    if obj_id > 0:
+                        objects.append({
+                            'object_id': obj_id,
+                            'class_serial': class_serial,
+                            'payload': payload[p+5:p+9],  # Remaining field data
+                        })
+                    p += 5
+                else:
+                    p += 1
+        else:
+            # Format A: marker-based table
+            first_marker = payload.find(b'\x00\x40\x00')
+            if first_marker == -1:
+                continue
             
-            entry_data = payload[p:next_marker]
-            class_serial = payload[next_marker + 3]  # The XX byte of marker
-            
-            if len(entry_data) >= 4:
-                obj_id = struct.unpack_from('<I', entry_data, 0)[0]
-                objects.append({
-                    'object_id': obj_id,
-                    'class_serial': class_serial,
-                    'payload': entry_data[4:],
-                })
-            
-            p = next_marker + 4
+            p = first_marker + 4  # Skip past first marker
+            while p < len(payload) - 4:
+                next_marker = payload.find(b'\x00\x40\x00', p)
+                if next_marker == -1 or next_marker + 4 >= len(payload):
+                    break
+                
+                entry_data = payload[p:next_marker]
+                class_serial = payload[next_marker + 3]  # The XX byte of marker
+                
+                if len(entry_data) >= 4:
+                    obj_id = struct.unpack_from('<I', entry_data, 0)[0]
+                    objects.append({
+                        'object_id': obj_id,
+                        'class_serial': class_serial,
+                        'payload': entry_data[4:],
+                    })
+                
+                p = next_marker + 4
     
     return objects
 ```
@@ -385,7 +434,7 @@ def parse_gc_heap_samples(chunks, filepath):
                 })
                 p += 20
             else:
-                break
+                p += 4  # Skip invalid entries instead of breaking
     
     return gc_roots
 ```
