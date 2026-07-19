@@ -87,11 +87,11 @@
 - **总大小**: `<size>`
 - **Root 路径**:
   ```
-  GC Root: JAVA_STACK
-    → Thread.<unnamed>
-      → com.example.MyClass.staticField
-        → com.example.LeakyClass[12345 instances]
+  GC Root: JAVA_STACK (main)
+    → android.app.ActivityThread.handleStopActivity(Activity.java:8901)
+    → com.example.LiveGiftManager.mCachedGifts
   ```
+- **字段**: `<field_name>` (`<type>`) ← `<说明>`
 - **建议**: `<具体修复建议>`
 
 #### [P1] `<标题>`
@@ -105,7 +105,11 @@
       → HashMap<...>
         → com.example.LargeObject[567 instances]
   ```
+- **字段**: `<field_name>` (`<type>`) ← `<说明>`
 - **建议**: `<具体修复建议>`
+
+> 如果无法解析出具体字段名，显示 "字段: 未知"。
+> 如果 root_kind 为 UNKNOWN，保留原始 root_info 值供调试。
 
 ## 内存泄漏检测
 

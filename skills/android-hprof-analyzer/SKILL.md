@@ -120,6 +120,38 @@ description: 堆中存在大量重复 String 对象，占用约 120MB，建议�
 ...（报告正文）
 ```
 
+### GC Root 引用链分析
+
+在报告中必须包含以下章节，使用新增的 GC Root JOIN SQL 查询填充：
+
+```markdown
+## GC Root 引用链分析
+
+### Root 类型分布（含类名关联）
+
+| Root 类型 | 目标类 | 数量 |
+|-----------|--------|------|
+| JAVA_STACK | com.xmhaibao.gift.bean.LiveGiftInfo | 7,829 |
+| SYSTEM_CLASS | java.lang.Object | 9,998 |
+| ... | ... | ... |
+
+### 可疑引用链
+
+#### [P0] LiveGiftInfo 被主线程持有
+
+- **持有对象**: `com.xmhaibao.gift.bean.LiveGiftInfo`
+- **实例数**: 43,260
+- **Root 路径**:
+  ```
+  GC Root: JAVA_STACK (main)
+    → android.app.ActivityThread.handleStopActivity
+    → com.example.LiveGiftManager.mCachedGifts
+  ```
+- **建议**: 将缓存改为 WeakReference
+```
+
+**注意**：JOIN 条件取决于 HeapDumpStarDiver 实际生成的 Parquet schema。需要根据实际列名调整 `thread_id`、`frame_ids` 等字段名。如果 JOIN 返回空结果，说明 Parquet 路径的 schema 不包含线程栈信息，此时应回退到二进制路径的结果。
+
 ## 会话管理
 
 - 会话默认以 HPROF 文件名命名（例如 `heap-dump-2024.hprof` 对应会话名 `heap-dump-2024`）
@@ -212,4 +244,58 @@ WHERE obj_id = 12345678
 SELECT root_type, COUNT(*) as cnt
 FROM read_parquet('_gc_roots_chunk*.parquet')
 GROUP BY root_type ORDER BY cnt DESC
+
+-- ============================================================================
+-- GC Root 引用链查询（新增）
+-- ============================================================================
+
+-- 1. GC Root → 类名关联：消除 Unknown，按类名统计
+SELECT
+    gr.root_type,
+    oi.type_name,
+    COUNT(*) as cnt
+FROM read_parquet('_gc_roots_chunk*.parquet') gr
+LEFT JOIN read_parquet('_object_index_chunk*.parquet') oi
+    ON gr.object_id = oi.obj_id
+GROUP BY gr.root_type, oi.type_name
+ORDER BY gr.root_type, cnt DESC
+
+-- 2. GC Root → 线程栈引用链：构建完整引用路径
+SELECT
+    gr.root_type,
+    gr.root_info,
+    gr.object_id,
+    oi.type_name as target_class,
+    sf.class_name as frame_class,
+    sf.method_name as frame_method,
+    sf.line_number
+FROM read_parquet('_gc_roots_chunk*.parquet') gr
+LEFT JOIN read_parquet('_object_index_chunk*.parquet') oi
+    ON gr.object_id = oi.obj_id
+LEFT JOIN read_parquet('_stack_traces.parquet') st
+    ON gr.root_info::BIGINT = st.thread_id
+LEFT JOIN read_parquet('_stack_frames.parquet') sf
+    ON sf.frame_id = st.frame_ids
+WHERE gr.root_type = 'JAVA_STACK'
+ORDER BY gr.root_type, target_class
+LIMIT 100
+
+-- 3. 高实例数类 + GC Root 关联：找出被 GC Root 直接持有的高实例数类
+WITH high_count_classes AS (
+    SELECT type_name, COUNT(*) as cnt
+    FROM read_parquet('_object_index_chunk*.parquet')
+    GROUP BY type_name
+    HAVING cnt > 1000
+),
+rooted_classes AS (
+    SELECT oi.type_name, COUNT(DISTINCT gr.root_info) as root_count
+    FROM read_parquet('_gc_roots_chunk*.parquet') gr
+    JOIN read_parquet('_object_index_chunk*.parquet') oi
+        ON gr.object_id = oi.obj_id
+    GROUP BY oi.type_name
+)
+SELECT h.type_name, h.cnt as instance_count, r.root_count
+FROM high_count_classes h
+JOIN rooted_classes r ON h.type_name = r.type_name
+ORDER BY r.root_count DESC, h.cnt DESC
 ```
