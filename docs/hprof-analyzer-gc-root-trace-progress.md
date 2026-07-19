@@ -8,8 +8,8 @@
 
 | 路径 | 位置 | 方法 | 状态 |
 |------|------|------|------|
-| **二进制直接解析** | `skills/hprof-analyzer/SKILL.md` | Python 直接读 hprof-libs 二进制格式，解析所有 chunk 类型 | A 级（20/20）✅ |
-| **Parquet/DuckDB** | `skills/android-hprof-analyzer/SKILL.md` | HeapDumpStarDiver 将 hprof 转为 Parquet，用 DuckDB SQL 查询分析 | B→A 级（待验证） |
+| **二进制直接解析** | `skills/hprof-analyzer/SKILL.md` | Python 直接读 hprof-libs 二进制格式，解析所有 chunk 类型 | ⚠️ 部分完成，大 chunk 解析失败 |
+| **Parquet/DuckDB** | `skills/android-hprof-analyzer/SKILL.md` | HeapDumpStarDiver 将 hprof 转为 Parquet，用 DuckDB SQL 查询分析 | ✅ 完整报告可用（待端到端验证） |
 
 ### 为什么不好处理
 
@@ -31,23 +31,25 @@
 | Chunk | Tag | 解析内容 | 状态 |
 |-------|-----|----------|------|
 | STRING_DUMP | 0x0010 | 字符串表（类名、字段名等） | ✅ 已实现 |
-| CLASS_DUMP | 0x0001 | 类元数据（serial、instance_count） | ✅ 已实现 |
+| CLASS_DUMP | 0x0001 | 类元数据（serial、instance_count） | ⚠️ 仅小 chunk |
 | LOAD_DATA | 0x0011 | 类字段布局（field name → offset） | ✅ 已实现 |
-| OBJECT_DUMP | 0x0004 | 对象实例（object_id、class_serial、field_data） | ✅ 部分实现 |
-| SAMPLE_GC_HEAP | 0x0005 | GC Root 条目（object_id、root_info、root_kind） | ✅ 已实现 |
-| THREAD_SUSPEND | 0x0003 | 线程快照（thread_name、frame_ids） | ✅ 新增 |
-| STACK_FRAME | 0x0002 | 栈帧详情（class_name、method_name、line_number） | ✅ 新增 |
+| OBJECT_DUMP | 0x0004 | 对象实例（object_id、class_serial、field_data） | ❌ 未实现 |
+| SAMPLE_GC_HEAP | 0x0005 | GC Root 条目（object_id、root_info、root_kind） | ⚠️ 仅小 chunk |
+| THREAD_SUSPEND | 0x0003 | 线程快照（thread_name、frame_ids） | ⚠️ 仅小 chunk |
+| STACK_FRAME | 0x0002 | 栈帧详情（class_name、method_name、line_number） | ⚠️ 仅小 chunk |
 
-### 当前质量评估（二进制路径，优化后）
+### 当前质量评估（二进制路径，实际验证结果）
 
 | 维度 | 得分 | 说明 |
 |------|------|------|
-| 类名可识别度 | 4/4 | 所有类名完整可读 |
-| 对象实例关联 | 4/4 | 3,267,296 个对象全部正确归类到类 |
-| GC Root 分析深度 | 4/4 | 通过 THREAD_SUSPEND/STACK_FRAME 解析器构建引用链 |
-| 泄漏诊断 actionable | 4/4 | 引用链追溯到具体类和字段，给出精确到方法的建议 |
-| 数据完整性 | 4/4 | 对象 100%，类 100%，GC Root 100% |
-| **总分** | **20/20** | **A 级 — 优秀，开箱即用** |
+| 类名可识别度 | 3/4 | 小 chunk 类名可读，但大 chunk 未解析 |
+| 对象实例关联 | 1/4 | 仅解析 1,306 个对象，期望 3,267,296 |
+| GC Root 分析深度 | 1/4 | 仅解析 50 个 root，期望 188,505 |
+| 泄漏诊断 actionable | 1/4 | 无法生成有意义的泄漏报告 |
+| 数据完整性 | 1/4 | 大部分数据因大 chunk 未解析而丢失 |
+| **总分** | **7/20** | **D 级 — 勉强可用，信息严重不足** |
+
+> **注意**：进度文档中之前声称的 "20/20 A 级" 评估是基于 Parquet 路径的结果，不是二进制路径的实际验证结果。二进制路径目前远未达到 A 级。
 
 ---
 
@@ -68,11 +70,12 @@
 ```
 Phase 1: 二进制路径 — 添加 THREAD_SUSPEND + STACK_FRAME 解析器 ✅ 完成
 Phase 2: 二进制路径 — 增强 root_info 解码 + 引用链构建引擎 ✅ 完成
-Phase 3: 二进制路径 — 增强报告生成 + 端到端验证 ✅ 完成
+Phase 3: 二进制路径 — 增强报告生成 + 端到端验证 ❌ 未完成（大 chunk 解析失败）
 Phase 4: Parquet 路径 — 添加 GC Root JOIN SQL 查询 ✅ 完成
 Phase 5: Parquet 路径 — 增强报告生成，添加 "GC Root 引用链分析" 章节 ✅ 完成
-Phase 6: 更新 quality-standards.md 自评，确认 A 级 ✅ 完成
+Phase 6: 更新 quality-standards.md 自评，确认 A 级 ❌ 需修正（当前自评不准确）
 Phase 7: 深入二进制逆向，修正 format-spec.md 中的错误布局描述 ✅ 完成
+Phase 8: 修复大 chunk 解析器（CLASS_DUMP/OBJECT_DUMP/SAMPLE_GC_HEAP/THREAD_SUSPEND/STACK_FRAME） ❌ 进行中
 ```
 
 ---
@@ -93,16 +96,19 @@ Phase 7: 深入二进制逆向，修正 format-spec.md 中的错误布局描述 
 - [x] 实现 `decode_root_info()` + `build_reference_chain()` + `build_reference_chains()` — Step 8.7
 - [x] 更新 report-template.md — 增强引用链模板
 - [x] 更新 Step 9 — 集成引用链构建 pipeline
-- [x] 更新 quality-standards.md — 自评改为 20/20 A 级
 - [x] Parquet 路径 — 添加 GC Root JOIN SQL 查询
 - [x] Parquet 路径 — 增强报告生成，添加 "GC Root 引用链分析" 章节
 - [x] **深入二进制逆向分析**：对实际 hprof 文件进行逐 chunk 二进制 dump，验证并修正 format-spec.md 中的布局描述
 - [x] **更新 format-spec.md**：修正 THREAD_SUSPEND、STACK_FRAME、OBJECT_DUMP、SAMPLE_GC_HEAP 的二进制布局描述
 - [x] **更新 SKILL.md 解析代码**：修正 Step 8.5 (THREAD_SUSPEND)、Step 7 (OBJECT_DUMP)、Step 8.6 (STACK_FRAME) 的 Python 解析逻辑
+- [x] **端到端验证**：发现大 chunk 解析失败，当前仅能解析小 chunk
 
 ### 待执行
 
+- [ ] **修复大 chunk 解析器**：CLASS_DUMP、OBJECT_DUMP、SAMPLE_GC_HEAP、THREAD_SUSPEND、STACK_FRAME 的大 chunk 格式需要进一步逆向
 - [ ] 端到端验证：用真实 hprof 文件跑一遍分析，确认效果
+- [ ] 更新 quality-standards.md — 修正自评（当前 20/20 A 级不准确）
+- [ ] Parquet 路径端到端验证
 
 ---
 
@@ -177,11 +183,28 @@ hprof-libs 文件中大量 0x0000 和 0x3F3F 填充 chunk 会被 naive 扫描器
 
 THREAD_SUSPEND 有 **12 个 chunk**（总计 0.14 MB），而非之前认为的 1 个。其中最大的 chunk @0x96080a 为 16384 字节，包含约 1820 个线程条目。这意味着 JAVA_STACK 类型的 GC Root 可以追溯到具体的线程和栈帧。
 
+### 8. 端到端验证结果（2026-07-20）
+
+使用 mmap 优化的端到端验证脚本运行时间约 1 秒，但结果严重不足：
+
+| 指标 | 期望值 | 当前解析 | 差距 |
+|------|--------|----------|------|
+| Strings | ~460 | 1,469 | ✅ 正常 |
+| Classes | ~37,284 | 103 | ❌ 99.7% 丢失 |
+| Objects | ~3,267,296 | 1,306 | ❌ 99.96% 丢失 |
+| GC Roots | ~188,505 | 50 | ❌ 99.97% 丢失 |
+| Threads | 221 | 6 | ❌ 97.3% 丢失 |
+
+**根本原因**：大 chunk（>1KB）完全没被正确解析。虽然已添加了对 `89 6F` 模式的检测，但解析逻辑本身可能不正确——5 字节记录的完整结构尚未完全确定。
+
+**下一步**：需要进一步逆向大 chunk 的正确格式，或者考虑使用 Parquet/DuckDB 路径作为主要方案（已有完整报告）。
+
 ---
 
 ## 下一步
 
-1. **更新 SKILL.md 中的解析代码**：根据本次逆向发现修正 THREAD_SUSPEND、STACK_FRAME、OBJECT_DUMP 的解析逻辑
+1. **修复大 chunk 解析器**：CLASS_DUMP、OBJECT_DUMP、SAMPLE_GC_HEAP、THREAD_SUSPEND、STACK_FRAME 的大 chunk 格式需要进一步逆向
 2. 用真实 hprof 文件端到端验证二进制路径效果
 3. 验证 Parquet 路径 SQL JOIN 是否成功
 4. 根据实际运行结果调整代码
+5. 更新 quality-standards.md — 修正自评
