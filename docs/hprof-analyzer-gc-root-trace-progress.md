@@ -84,14 +84,17 @@ Phase 6: 更新 quality-standards.md 自评，确认 A 级
 - [x] 找到测试文件：`hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof`（159MB）
 - [x] 初步扫描 hprof-libs 文件头，确认格式为 Android hprof-libs（stated header size = 0x00019f4e = 106,318 > 2000）
 - [x] 扫描 chunk stream，发现有效 chunk 数量极少：THREAD_SUSPEND 仅 1 个（64B）、STACK_FRAME 仅 1 个（36KB），其余大量是填充数据（0x0000 和 0x3F3F）
+- [x] 修复 chunk 扫描器：排除 padding tags（0x0000、0x3F3F）+ 要求最小 length >= 20，扫描出 3,957 个有效 chunk
+- [x] 逆向 THREAD_SUSPEND (0x0003)：marker-based 表格式，`[entry_data(5B)] [00 40 00 class_serial(1B)]`，共 6 个 entry，含 thread_obj_id、suspend_type、name_len、thread_name、frame_count、frame_ids
+- [x] 逆向 STACK_FRAME (0x0002)：同样 marker-based 格式，共 4 个 chunk（3 个有数据，1 个全 3F 填充），每 entry 含 frame_id、class_serial、method_index、line_number
 
 ### 进行中
 
 - [ ] **Phase 1: 二进制路径 — 添加 THREAD_SUSPEND + STACK_FRAME 解析器**
-  - 正在逆向分析 hprof-libs 中 THREAD_SUSPEND (0x0003) 和 STACK_FRAME (0x0002) 的实际二进制布局
-  - 发现 chunk 扫描器在填充区域误匹配了大量 tag=0x0002/0x0003 的假 chunks（length=0），需要修复扫描逻辑
-  - 已定位到真实 THREAD_SUSPEND chunk 位于 0x95D9F65，真实 STACK_FRAME chunk 位于 0x1370F5C
-  - 正在分析 STACK_FRAME 的 marker-based 表结构（每 entry 9 bytes: 5B data + 4B marker `00 40 00 XX`）
+  - 已确认实际二进制格式，需要编码为 Python 函数添加到 SKILL.md
+  - THREAD_SUSPEND 格式：marker-based table，每 entry 5B data + 4B marker
+  - STACK_FRAME 格式：同上，每 entry 5B data + 4B marker
+  - 需要实现 string_table lookup 来解析 class_name 和 method_name
 
 ### 待执行
 
@@ -107,21 +110,33 @@ Phase 6: 更新 quality-standards.md 自评，确认 A 级
 
 ### 1. 填充数据干扰严重
 
-hprof-libs 文件中大量 0x0000 和 0x3F3F 填充 chunk 会被 naive 扫描器误判为有效 tag。需要在扫描器中排除这些填充类型，或增加 length 下限过滤。
+hprof-libs 文件中大量 0x0000 和 0x3F3F 填充 chunk 会被 naive 扫描器误判为有效 tag（length=0）。需要在扫描器中排除这些填充类型，或增加 length 下限过滤。
 
-### 2. STACK_FRAME 使用 marker-based 表格式
+### 2. THREAD_SUSPEND / STACK_FRAME 使用 marker-based 表格式
 
-与 CLASS_DUMP/OBJECT_DUMP 相同，STACK_FRAME 也是 `[entry_data] [00 40 00 class_serial]` 格式。每个 entry 前缀有 5B 数据，后面跟 4B marker。marker 的最后一个字节是 class_serial。
+与 CLASS_DUMP/OBJECT_DUMP 相同，THREAD_SUSPEND 和 STACK_FRAME 也是 `[entry_data] [00 40 00 XX]` 格式。每个 entry 前缀有 5B 数据，后面跟 4B marker。
 
 ### 3. 线程快照数据极少
 
-整个 159MB 文件中只有 1 个 THREAD_SUSPEND chunk（64B），包含少量线程信息。这意味着引用链追溯可能主要依赖 GC Root 中的其他 root_kind（如 GC_STATIC_FIELD）而非 JAVA_STACK。
+整个 159MB 文件中 THREAD_SUSPEND 仅 1 个 chunk（64B，6 个 entry），STACK_FRAME 共 4 个 chunk（3 个有效 + 1 个全填充）。这意味着引用链追溯可能主要依赖 GC Root 中的其他 root_kind（如 GC_STATIC_FIELD）而非 JAVA_STACK。
+
+### 4. 扫描器修复后的 chunk 统计
+
+排除 padding 且要求 length >= 20 后，扫描出 3,957 个有效 chunk，包括：
+- CLASS_DUMP: 5 chunks
+- STACK_FRAME: 4 chunks (0.1 MB)
+- THREAD_SUSPEND: 1 chunk (64B)
+- OBJECT_DUMP: 2 chunks
+- SAMPLE_GC_HEAP: 13 chunks
+- STRING_DUMP: 7 chunks
+- LOAD_DATA: 1 chunk
+- CHAIN_INSTANCE: 2 chunks
+- 以及大量非标准 tag（0x0008, 0x000A, 0x0018, 0x001D 等）
 
 ---
 
 ## 下一步
 
-1. 继续逆向分析 STACK_FRAME 和 THREAD_SUSPEND 的实际二进制格式
-2. 修复 chunk 扫描器的填充数据过滤问题
-3. 实现 `parse_thread_suspended()` 和 `parse_stack_frames()` 函数
-4. 添加到 SKILL.md 作为新的 Step 8.5 / 8.6
+1. 实现 `parse_thread_suspended()` 和 `parse_stack_frames()` 函数
+2. 添加到 SKILL.md 作为新的 Step 8.5 / 8.6
+3. 用真实 hprof 文件验证解析结果
