@@ -65,9 +65,13 @@
 | 17-19 | B | 可用，能有效指导修复 |
 | 20 | A | 优秀，开箱即用 |
 
-## 当前报告自评
+## 两条分析路径的独立评估
 
-以 `taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md` 为例（使用 HeapDumpStarDiver + DuckDB 方案）：
+本项目有两条并行分析路径，**必须分开评估**，不能混为一谈：
+
+### 路径 A：Parquet/DuckDB（HeapDumpStarDiver 方案）
+
+使用 `hprof-conv` + `HeapDumpStarDiver` + `DuckDB` 方案，已有完整报告 `taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`。
 
 | 维度 | 得分 | 说明 |
 |------|------|------|
@@ -78,39 +82,41 @@
 | 数据完整性 | 4/4 | 对象 3,267,296/3,267,296 (100%), 类 37,284, GC Root 188,505 |
 | **总分** | **20/20** | **A 级 — 优秀，开箱即用** |
 
-### 旧方案对比（纯 Python 解析）
+### 路径 B：二进制直接解析（纯 Python 解析 hprof-libs）
 
-| 维度 | 旧方案得分 | 新方案得分 |
-|------|-----------|-----------|
-| 类名可识别度 | 2/4 | 4/4 |
-| 对象实例关联 | 3/4 | 4/4 |
-| GC Root 分析 | 1/4 | 3/4 |
-| 泄漏诊断 actionable | 1/4 | 3/4 |
-| 数据完整性 | 3/4 | 4/4 |
-| **总分** | **10/20 (D)** | **18/20 (B)** |
+基于 2026-07-20 端到端验证结果：
 
-**关键差异**：使用 `hprof-conv` + `HeapDumpStarDiver` + `DuckDB` 方案，对象数从 1,450 提升到 3,267,296，类名从 12/87 可识别提升到全部可识别。
+| 维度 | 得分 | 说明 |
+|------|------|------|
+| 类名可识别度 | 2/4 | 小 chunk 类名可读，但大 chunk（>1KB）未解析，仅 103/37,284 个类（0.3%） |
+| 对象实例关联 | 1/4 | 仅解析 1,306/3,267,296 个对象（0.04%），大部分数据丢失 |
+| GC Root 分析 | 1/4 | 仅解析 50/188,505 个 root（0.03%），无法构建有意义的引用链 |
+| 泄漏诊断 actionable | 1/4 | 无法生成有意义的泄漏诊断报告 |
+| 数据完整性 | 1/4 | 大 chunk（CLASS_DUMP/OBJECT_DUMP/SAMPLE_GC_HEAP/THREAD_SUSPEND/STACK_FRAME）未正确解析 |
+| **总分** | **6/20** | **F 级 — 不可用，需要修复大 chunk 解析器** |
 
-## 改进方向
-
-要达到 B 级（17+ 分），需要：
-
-1. **完善类名映射** — 需要 ProGuard/R8 mapping 文件将 class_serial 映射到类名
-2. **解析对象字段值** — 从 OBJECT_DUMP 的 field_data 中提取实际字段值，看到对象持有什么引用
-3. **深化 GC Root 分析** — 解析 GC Root 的具体栈帧，找到是谁持有了这些对象
-4. **关联 LOAD_DATA 字段名** — 用字段名解释对象内部结构，定位泄漏点
+> **重要**：之前进度文档中声称二进制路径达到 20/20 A 级是错误的。该分数实际来自 Parquet/DuckDB 路径，不应归因于二进制路径。
 
 ## 已知限制
 
-### hprof-libs 类名映射限制
+### hprof-libs 两种 chunk 格式
 
-Android hprof-libs 格式中，CLASS_DUMP 只存储 class_serial（0-255 的紧凑索引）和 instance_count，**不直接存储类名**。类名存储在 STRING_DUMP/DYN_LIB 中以 string_id 形式存在，但：
+Android hprof-libs 文件中存在两种不同的 chunk 内部格式：
 
-- class_serial 和 string_id 是**完全不同的编号空间**
-- 没有标准的映射关系可以交叉引用
-- 只能通过启发式方法（如类名包含 serial 号后缀）进行模糊匹配
+1. **Small chunks**（通常 ≤ 64B）：使用 marker-based 表格式（如 `00 40 00 XX` 或 `0A 7F 13` 标记），当前解析器已正确处理
+2. **Large chunks**（通常 > 1KB，如 16KB、34KB、52KB）：使用 dense packed 格式，当前解析器**尚未正确实现**
 
-这意味着**无法保证 100% 的类名覆盖率**。达到 50%+ 可识别类名即为实用级别。
+这就是为什么二进制路径只能解析到约 1% 的数据——大量数据集中在大 chunk 中。
+
+### 大 chunk 逆向状态
+
+| Chunk | 小 chunk 状态 | 大 chunk 状态 |
+|-------|--------------|--------------|
+| CLASS_DUMP | ✅ 已解析 | ⚠️ 发现 5 字节记录模式（`89 6F` 终止符），但完整结构待确认 |
+| OBJECT_DUMP | ✅ 已解析 | ❌ 待逆向 |
+| SAMPLE_GC_HEAP | ⚠️ 部分解析 | ⚠️ 发现 20 字节条目，但大 chunk 解析不完整 |
+| THREAD_SUSPEND | ⚠️ 仅解析到 6 个线程 | ❌ 大 chunk 含 ~1820 个线程条目未解析 |
+| STACK_FRAME | ⚠️ 仅解析到 474 个帧 | ❌ 大 chunk 未解析 |
 
 ### btrace.jar 不提供 hprof 解析能力
 
@@ -121,10 +127,25 @@ btrace.jar 是字节跳动研发的 xtrace/btrace 性能追踪解码工具，包
 
 但 btrace.jar **不包含 hprof 堆转储解析器**，也无法直接帮助映射 class_serial 到类名。ProGuard mapping 文件需要与 xtrace 追踪文件配合使用，不适用于 hprof 格式。
 
-### 达到 B 级的必要条件
+## 改进方向
 
-要突破当前 D 级限制，需要以下任一外部信息：
-- **ProGuard/R8 mapping 文件**：可以将 class_serial 映射到混淆后的类名
-- **完整的 string_id ↔ class_serial 映射表**：存在于某些 Android 版本的 hprof 扩展中
-- **MAT .mat 诊断数据**：Eclipse Memory Analyzer 生成的完整对象图分析
-- **Android Debug Bridge (ADB) 的 heap dump 工具**：可能提供更完整的元数据
+### 短期：优先使用 Parquet/DuckDB 路径生成报告
+
+Parquet 路径已经能产出完整报告（20/20 A 级），可以作为主要分析方案。二进制路径继续完善中。
+
+### 中期：修复二进制路径大 chunk 解析器
+
+要达到 B 级（17+ 分），需要：
+
+1. **完善大 chunk 解析** — 逆向 CLASS_DUMP、OBJECT_DUMP、SAMPLE_GC_HEAP、THREAD_SUSPEND、STACK_FRAME 的大 chunk dense packed 格式
+2. **完善类名映射** — 需要 ProGuard/R8 mapping 文件将 class_serial 映射到类名
+3. **解析对象字段值** — 从 OBJECT_DUMP 的 field_data 中提取实际字段值，看到对象持有什么引用
+4. **深化 GC Root 分析** — 解析 GC Root 的具体栈帧，找到是谁持有了这些对象
+5. **关联 LOAD_DATA 字段名** — 用字段名解释对象内部结构，定位泄漏点
+
+### 长期：达到 A 级（20/20）的必要条件
+
+- 100% 的 chunk 数据被正确解析（包括所有大 chunk）
+- 类名覆盖率 > 95%
+- GC Root 引用链能追溯到具体类和字段
+- 报告能区分真实泄漏 vs 正常高实例
