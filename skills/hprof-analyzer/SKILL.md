@@ -200,7 +200,8 @@ def parse_class_dumps(chunks, filepath):
             payload = f.read(length - 4)
         
         # Detect format: large chunks (>1KB) with 89 6F pattern use dense format
-        if length > 1000 and b'\x89\x6f' in payload[:200]:
+        # Check entire payload for 89 6F pattern (not just first 200 bytes)
+        if length > 1000 and b'\x89\x6f' in payload:
             # Format B: dense packed 5-byte records
             p = 0
             while p + 5 <= len(payload):
