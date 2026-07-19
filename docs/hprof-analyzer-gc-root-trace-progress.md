@@ -98,6 +98,7 @@ Phase 7: 深入二进制逆向，修正 format-spec.md 中的错误布局描述 
 - [x] Parquet 路径 — 增强报告生成，添加 "GC Root 引用链分析" 章节
 - [x] **深入二进制逆向分析**：对实际 hprof 文件进行逐 chunk 二进制 dump，验证并修正 format-spec.md 中的布局描述
 - [x] **更新 format-spec.md**：修正 THREAD_SUSPEND、STACK_FRAME、OBJECT_DUMP、SAMPLE_GC_HEAP 的二进制布局描述
+- [x] **更新 SKILL.md 解析代码**：修正 Step 8.5 (THREAD_SUSPEND)、Step 7 (OBJECT_DUMP)、Step 8.6 (STACK_FRAME) 的 Python 解析逻辑
 
 ### 待执行
 

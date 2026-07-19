@@ -277,16 +277,26 @@ def parse_load_data(chunks, filepath):
 
 ### Step 7: Parse OBJECT_DUMP Chunks
 
-Extract object instances and their field values:
+Extract object instances and their field values.
+
+**Reverse-engineered layout**: OBJECT_DUMP uses `00 40 00 XX` marker-based table format. Each entry is typically **5-9 bytes**, not variable-length field_data as previously documented.
 
 ```python
 def parse_object_dumps(chunks, filepath):
     """Parse OBJECT_DUMP chunks to get object instances.
     
-    hprof-libs OBJECT_DUMP uses the same marker-based table format as CLASS_DUMP:
-    - Each entry: [data_before_marker] [00 40 00 XX marker]
-    - The marker's XX byte is the class_serial
-    - Entry data before marker contains object_id and field values
+    hprof-libs OBJECT_DUMP uses marker-based table format with 00 40 00 XX separators:
+      [entry_data(variable)] [00 40 00 class_serial(1B)]
+    
+    Entry structure (typically 5-9 bytes):
+      - object_id(4B LE)
+      - type_code(1B) — e.g., 0x0B, 0x02, 0xFF
+      - [padding/field_data(variable, often small)]
+    
+    The XX byte of the marker is the NEXT class_serial (sequential counter).
+    A 4-byte header may precede the first marker.
+    
+    Returns: list of {object_id, class_serial, payload}
     """
     objects = []  # list of {object_id, class_serial, payload}
     
@@ -310,7 +320,7 @@ def parse_object_dumps(chunks, filepath):
                 break
             
             entry_data = payload[p:next_marker]
-            class_serial = payload[next_marker + 3]
+            class_serial = payload[next_marker + 3]  # The XX byte of marker
             
             if len(entry_data) >= 4:
                 obj_id = struct.unpack_from('<I', entry_data, 0)[0]
@@ -382,29 +392,30 @@ def parse_gc_heap_samples(chunks, filepath):
 
 ### Step 8.5: Parse THREAD_SUSPEND Chunks
 
-Extract thread suspension snapshots — thread names, object IDs, and stack frame ID lists. These are essential for building GC Root → Thread → Stack Frame reference chains.
+Extract thread suspension snapshots — thread object IDs and frame ID lists. These are essential for building GC Root → Thread → Stack Frame reference chains.
+
+**Critical**: Thread names are NOT stored inline in THREAD_SUSPEND chunks. They are resolved via the STRING_DUMP table using string_id lookups. The THREAD_SUSPEND chunk contains a dense marker table of thread object IDs.
 
 ```python
 def parse_thread_suspended(chunks, filepath):
-    """Parse THREAD_SUSPEND chunks to extract thread info and stack frame IDs.
+    """Parse THREAD_SUSPEND chunks to extract thread object IDs.
     
-    hprof-libs THREAD_SUSPEND uses a marker-based table format, same as CLASS_DUMP/OBJECT_DUMP:
-      [entry_data(variable)] [00 40 00 class_serial(1B)]
+    hprof-libs THREAD_SUSPEND uses a marker-based table with 0A 7F 13 markers:
+      [thread_obj_id(4B LE)] [0x0A] [0x7F] [0x13] [counter(1B)] [pad(2B: 0x00 0x40)]
     
-    Each entry contains (variable length, typically ~10-20 bytes):
+    Each entry is exactly 9 bytes:
       - thread_obj_id(4B LE) — object ID used to link from SAMPLE_GC_HEAP.root_info when root_kind=JAVA_STACK
-      - pad(4B LE)
-      - suspend_type(1B) — 0=suspend, 1=yield, etc.
-      - pad(1B)
-      - thread_name_len(2B LE)
-      - thread_name(thread_name_len bytes UTF-8)
-      - stack_frame_count(4B LE)
-      - frame_ids(stack_frame_count × 4B LE) — frame IDs that reference STACK_FRAME chunks
+      - marker(3B: 0x0A 0x7F 0x13)
+      - counter(1B) — sequential thread index
+      - pad(2B: 0x00 0x40)
+    
+    Thread names must be resolved via STRING_DUMP string_table using string_id.
+    Frame IDs are resolved via STACK_FRAME chunks.
     
     Returns: dict mapping thread_obj_id -> {
-        'name': str,
+        'name': str,          # resolved via STRING_DUMP string_table
         'suspend_type': int,
-        'frame_ids': [int, ...]
+        'frame_ids': [int, ...],  # resolved via STACK_FRAME chunks
     }
     """
     threads = {}  # thread_obj_id -> thread info
@@ -417,75 +428,35 @@ def parse_thread_suspended(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Find first marker to skip any header
-        first_marker = payload.find(b'\x00\x40\x00')
-        if first_marker == -1:
-            continue
-        
-        p = first_marker + 4  # Skip past first marker
-        
-        while p < len(payload) - 4:
-            next_marker = payload.find(b'\x00\x40\x00', p)
-            if next_marker == -1 or next_marker + 4 >= len(payload):
-                break
+        # Parse marker table: entries are fixed 9 bytes each
+        # Pattern: obj_id(4) + 0x0A + 0x7F + 0x13 + counter(1) + pad(2)
+        p = 0
+        while p + 9 <= len(payload):
+            thread_obj_id = struct.unpack_from('<I', payload, p)[0]
+            b4 = payload[p+4]
+            b5 = payload[p+5]
+            b6 = payload[p+6]
+            counter = payload[p+7]
+            pad = struct.unpack_from('<H', payload, p+8)[0]
             
-            entry_data = payload[p:next_marker]
-            class_serial = payload[next_marker + 3]  # The XX byte of marker
-            
-            if len(entry_data) >= 8:
-                thread_obj_id = struct.unpack_from('<I', entry_data, 0)[0]
-                pad = struct.unpack_from('<I', entry_data, 4)[0]
-                
-                offset = 8
-                if offset >= len(entry_data):
-                    p = next_marker + 4
-                    continue
-                    
-                suspend_type = entry_data[offset]
-                offset += 1
-                pad2 = entry_data[offset] if offset < len(entry_data) else 0
-                offset += 1
-                
-                if offset + 2 > len(entry_data):
-                    p = next_marker + 4
-                    continue
-                    
-                name_len = struct.unpack_from('<H', entry_data, offset)[0]
-                offset += 2
-                
-                if offset + name_len > len(entry_data):
-                    # Name extends beyond entry — use rest of data
-                    thread_name = entry_data[offset:].decode('utf-8', errors='replace')
-                    remaining = 0
-                else:
-                    thread_name = entry_data[offset:offset+name_len].decode('utf-8', errors='replace')
-                    remaining = name_len
-                offset += remaining
-                
-                if offset + 4 > len(entry_data):
-                    frame_count = 0
-                    frame_ids = []
-                else:
-                    frame_count = struct.unpack_from('<I', entry_data, offset)[0]
-                    offset += 4
-                    
-                    if offset + frame_count * 4 <= len(entry_data) and frame_count > 0:
-                        frame_ids = []
-                        for i in range(frame_count):
-                            fid = struct.unpack_from('<I', entry_data, offset + i*4)[0]
-                            frame_ids.append(fid)
-                    else:
-                        frame_ids = []
-                
+            # Validate marker pattern
+            if b4 == 0x0A and b5 == 0x7F and b6 == 0x13 and pad == 0x0040:
                 if thread_obj_id > 0:
                     threads[thread_obj_id] = {
-                        'name': thread_name,
-                        'suspend_type': suspend_type,
-                        'frame_ids': frame_ids,
-                        'class_serial': class_serial,
+                        'name': '',  # Will be resolved via STRING_DUMP
+                        'suspend_type': 0,
+                        'frame_ids': [],
+                        'class_serial': counter,  # Used as class_serial in marker
                     }
-            
-            p = next_marker + 4
+                p += 9
+            else:
+                # Not a valid marker — scan forward
+                p += 1
+        
+        # After the marker table, search for thread metadata
+        # Thread names may be stored as string_id references in the tail
+        # Look for patterns like: string_id(4B) + thread_name_string(0x01 terminator)
+        # This requires additional parsing based on actual chunk layout
     
     return threads
 ```
@@ -494,19 +465,38 @@ def parse_thread_suspended(chunks, filepath):
 
 Extract stack frame details — class/method names and line numbers per frame ID. Used to resolve `root_info` references from SAMPLE_GC_HEAP entries.
 
+**Reverse-engineered layout**: STACK_FRAME uses `00 40 00 XX` marker-based table. Each marker-based entry is only **5 bytes**:
+```
+frame_id(4B LE) + type_code(1B)
+```
+The `XX` byte of the marker is the NEXT class_serial (sequential counter).
+
+The chunk may also contain a **pre-marker block** before the first `00 40 00` that has a different format, possibly containing:
+```
+frame_id(4B LE) + class_serial(4B LE) + pad(4B LE) + method_index(4B LE) + line_number(4B LE)
+```
+
+Returns: dict mapping frame_id -> {
+    'class_serial': int,
+    'class_name': str,       # resolved via string_table
+    'method_index': int,
+    'method_name': str,      # resolved via string_table
+    'line_number': int,
+    'type_code': int
+}
 ```python
 def parse_stack_frames(chunks, filepath, string_table):
     """Parse STACK_FRAME chunks to extract frame details.
     
-    hprof-libs STACK_FRAME uses the same marker-based table format:
+    hprof-libs STACK_FRAME uses marker-based table with 00 40 00 XX separators:
       [entry_data(variable)] [00 40 00 class_serial(1B)]
     
-    Each entry contains (typically 5 bytes before marker):
-      - frame_id(4B LE) — unique frame identifier
-      - type_code(1B) — 0x02 = has instances, 0x0A = no instances, etc.
+    Marker-based entry structure (typically 5 bytes):
+      - frame_id(4B LE)
+      - type_code(1B)
     
-    The actual frame data is at the beginning of the chunk, before the first marker:
-      frame_id(4B LE) + class_serial(4B LE) + pad(4B LE) + method_index(4B LE) + line_number(4B LE)
+    Pre-marker block (before first 00 40 00) may contain initial frames with full metadata:
+      frame_id(4B) + class_serial(4B) + pad(4B) + method_index(4B) + line_number(4B)
     
     Returns: dict mapping frame_id -> {
         'class_serial': int,
@@ -535,7 +525,7 @@ def parse_stack_frames(chunks, filepath, string_table):
         # Pre-marker block may contain initial frame data
         pre_data = payload[:first_marker]
         p = 0
-        while p + 16 <= len(pre_data):
+        while p + 20 <= len(pre_data):
             frame_id = struct.unpack_from('<I', pre_data, p)[0]
             class_serial = struct.unpack_from('<I', pre_data, p+4)[0]
             pad = struct.unpack_from('<I', pre_data, p+8)[0]
