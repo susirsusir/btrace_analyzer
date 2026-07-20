@@ -1,124 +1,124 @@
-# Android hprof-libs Format Specification
+# Android hprof-libs 格式规范
 
-This document describes the Android hprof-libs format used by modern Android devices (Android 7.0+).
+本文档描述了现代 Android 设备使用的 Android hprof-libs 格式（Android 7.0+）。
 
-> **Source**: Reverse-engineered from `taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` (159 MB, Android 7.0+ hprof-libs).
-> Verified against known-good data from HeapDumpStarDiver + DuckDB output and Eclipse MAT reference.
+> **来源**：从 `taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof`（159 MB，Android 7.0+ hprof-libs）逆向工程得出。
+> 已针对 HeapDumpStarDiver + DuckDB 输出和 Eclipse MAT 参考中的已知良好数据进行验证。
 
-## File Structure
-
-```
-[0-15]:     Magic "JAVA PROFILE 1.0" (12 bytes) + stated_header_size(4B LE) at offset 16
-[16-19]:    Stated header size (uint32 LE), typically 13102+ for hprof-libs
-[20-N]:     Extended header data (class metadata, string tables, field definitions)
-[0x80+]:    Chunk stream begins at FIXED offset 0x80 (NOT 16 + stated_header_size)
-```
-
-**Format detection**: if `stated_header_size > 2000`, use hprof-libs format; otherwise standard hprof-heap.
-
-## Chunk Format
-
-Each chunk in the record stream:
+## 文件结构
 
 ```
-tag:      uint16 LE (chunk type)
-length:   uint16 LE (total chunk size INCLUDING the 4-byte header)
-payload:  length - 4 bytes of chunk data
+[0-15]:     Magic "JAVA PROFILE 1.0" (12 bytes) + stated_header_size(4B LE)，位于偏移 16
+[16-19]:    Stated header size (uint32 LE)，hprof-libs 通常为 13102+
+[20-N]:     扩展头部数据（类元数据、字符串表、字段定义）
+[0x80+]:    Chunk 流从固定偏移 0x80 开始（不是 16 + stated_header_size）
 ```
 
-## Chunk Types
+**格式检测**：如果 `stated_header_size > 2000`，使用 hprof-libs 格式；否则使用标准 hprof-heap。
 
-| Tag | Name | Description |
-|-----|------|-------------|
-| 0x0000 | ZERO | Padding / zero-filled data |
-| 0x0001 | CLASS_DUMP | Class metadata (serial, instance count, static fields) |
-| 0x0002 | STACK_FRAME | Stack frame information |
-| 0x0003 | THREAD_SUSPEND | Thread suspension snapshot |
-| 0x0004 | OBJECT_DUMP | Object instance data |
-| 0x0005 | SAMPLE_GC_HEAP | GC heap sample (roots and reachable objects) |
-| 0x0010 | STRING_DUMP | String table entries |
-| 0x0011 | LOAD_DATA | Class/instance field data |
-| 0x0013 | DUMP_COMPLETED | Dump completion marker |
-| 0x0014 | SESSION_START | Session start metadata |
-| 0x0015 | SESSION_FINISH | Session end metadata |
-| 0x0016 | BUFFER_START | Buffer start marker |
-| 0x0017 | BUFFER_END | Buffer end marker |
-| 0x0019 | CHAIN_INSTANCE | Chain instance (field metadata) |
-| 0x0030 | DYNAMIC_SYSTEM_LIBRARY | Dynamic system library info |
-| 0x0031 | STATIC_SYSTEM_LIBRARY | Static system library info |
-| 0x0032 | ROM_PING | ROM partition info |
+## Chunk 格式
 
-## Chunk Payload Formats
+记录流中的每个 chunk：
+
+```
+tag:      uint16 LE（chunk 类型）
+length:   uint16 LE（包含 4 字节头部的 chunk 总大小）
+payload:  length - 4 bytes 的 chunk 数据
+```
+
+## Chunk 类型
+
+| Tag | 名称 | 描述 |
+|-----|------|------|
+| 0x0000 | ZERO | 填充/零填充数据 |
+| 0x0001 | CLASS_DUMP | 类元数据（serial、实例数、静态字段） |
+| 0x0002 | STACK_FRAME | 栈帧信息 |
+| 0x0003 | THREAD_SUSPEND | 线程挂起快照 |
+| 0x0004 | OBJECT_DUMP | 对象实例数据 |
+| 0x0005 | SAMPLE_GC_HEAP | GC 堆采样（roots 和可达对象） |
+| 0x0010 | STRING_DUMP | 字符串表条目 |
+| 0x0011 | LOAD_DATA | 类/实例字段数据 |
+| 0x0013 | DUMP_COMPLETED | Dump 完成标记 |
+| 0x0014 | SESSION_START | 会话开始元数据 |
+| 0x0015 | SESSION_FINISH | 会话结束元数据 |
+| 0x0016 | BUFFER_START | 缓冲区开始标记 |
+| 0x0017 | BUFFER_END | 缓冲区结束标记 |
+| 0x0019 | CHAIN_INSTANCE | 链式实例（字段元数据） |
+| 0x0030 | DYNAMIC_SYSTEM_LIBRARY | 动态系统库信息 |
+| 0x0031 | STATIC_SYSTEM_LIBRARY | 静态系统库信息 |
+| 0x0032 | ROM_PING | ROM 分区信息 |
+
+## Chunk Payload 格式
 
 ### CLASS_DUMP (0x0001)
 
-Two observed layouts:
+观察到两种布局：
 
-**Large CLASS_DUMP** (e.g., @0x56bfd1, len=51989): dense packed entries, no `00 40 00` markers visible in first bytes. Likely a raw array of class metadata records.
+**大 CLASS_DUMP**（如 @0x56bfd1，len=51989）：紧凑排列的条目，前几个字节中看不到 `00 40 00` 标记。可能是类元数据记录的原始数组。
 
-**Small CLASS_DUMP** (e.g., @0x8b9381, len=64): marker-based table using `00 40 00 XX` separators. Each entry contains class metadata followed by a marker whose `XX` byte is the NEXT class_serial.
+**小 CLASS_DUMP**（如 @0x8b9381，len=64）：使用 `00 40 00 XX` 分隔符的 marker-based 表。每条条目包含类元数据，后跟一个 marker，其 `XX` 字节是下一个 class_serial。
 
 ```
-Small CLASS_DUMP layout (marker-based table):
+小 CLASS_DUMP 布局（marker-based 表）：
   [entry_data(variable)] [00 40 00 XX]
 
-  entry_data contains:
-    type_code(1B) — 0x02=has instances, 0x0A=no instances, 0x0B=static/other
-    instance_count(1B) — 0xFF means unknown/special
+  entry_data 包含：
+    type_code(1B) — 0x02=有实例, 0x0A=无实例, 0x0B=静态/其他
+    instance_count(1B) — 0xFF 表示未知/特殊
     field_info(variable)
 
-  The XX byte of the marker is the NEXT class_serial (sequential counter).
-  A 7-byte header precedes the first entry in each chunk.
+  marker 的 XX 字节是下一个 class_serial（顺序计数器）。
+  每个 chunk 的第一个条目前有 7 字节头部。
 ```
 
 ### STRING_DUMP (0x0010)
 
 ```
-hprof-libs format (variable length per entry):
-  string_text:    variable bytes (printable ASCII, terminated by 0x01)
+hprof-libs 格式（每条变长）：
+  string_text:    变长字节（可打印 ASCII，以 0x01 终止）
   separator:      0x01
-  zeros:          7 bytes (0x00)
-  value:          1 byte (metadata)
-  ref:            4 bytes LE (string_id or pointer)
-  Total entry:    len(string_text) + 13 bytes
+  zeros:          7 字节 (0x00)
+  value:          1 字节（元数据）
+  ref:            4 字节 LE（string_id 或指针）
+  总条目长度：len(string_text) + 13 字节
 ```
 
-**Important**: The first entry in a chunk may have a garbage first byte (carry-over from previous chunk's ref). Validate that text is printable ASCII before accepting.
+**重要**：chunk 的第一个条目可能有一个垃圾首字节（来自前一个 chunk 的 ref 残留）。在接受之前，请验证文本是否为可打印 ASCII。
 
 ### OBJECT_DUMP (0x0004)
 
 ```
-hprof-libs format (marker-based table, same as CLASS_DUMP small layout):
+hprof-libs 格式（marker-based 表，与小 CLASS_DUMP 布局相同）：
   [entry_data(variable)] [00 40 00 class_serial(1B)]
 
-  entry_data contains:
+  entry_data 包含：
     object_id(4B LE)
     type_code(1B) — e.g., 0x0B, 0x02, 0xFF
-    field_data(variable, often padding or small values)
+    field_data(variable, 通常是 padding 或小值)
 
-  Multiple entries per chunk, separated by 00 40 00 XX markers.
-  The XX byte is the class_serial (same numbering as CLASS_DUMP).
-  Entry size varies: typically 5-9 bytes.
+  每个 chunk 多条条目，由 00 40 00 XX markers 分隔。
+  XX 字节是 class_serial（与 CLASS_DUMP 编号相同）。
+  条目大小可变：通常 5-9 字节。
 ```
 
-**Reverse-engineered example** (@0x5f7d01, len=16384):
-- Markers found at positions [7, 20, 33, 46, 59, ...], spacing ~13 bytes
-- First entry: `00 F3 02 14 C4 DA 00 00 40` → object_id=0xDA C4 14 02, type=0xF3, marker class_serial=0xF4
-- Second entry: `00 F4 0B 00 00 01 9F 4E 97 2B 58 00 40` → object_id=0x2B 58 4E 9F, type=0xF4, marker class_serial=0xF5
+**逆向工程示例**（@0x5f7d01，len=16384）：
+- 在位置 [7, 20, 33, 46, 59, ...] 找到 markers，间距约 13 字节
+- 第一条：`00 F3 02 14 C4 DA 00 00 40` → object_id=0xDA C4 14 02, type=0xF3, marker class_serial=0xF4
+- 第二条：`00 F4 0B 00 00 01 9F 4E 97 2B 58 00 40` → object_id=0x2B 58 4E 9F, type=0xF4, marker class_serial=0xF5
 
 ### SAMPLE_GC_HEAP (0x0005)
 
 ```
-hprof-libs format (20 bytes per entry):
-  object_id:      uint32 LE (reachable object)
-  root_info:      uint32 LE (context-specific)
-  root_kind:      uint16 LE (0-10)
-  class_serial:   uint32 LE (often constant system class)
+hprof-libs 格式（每条 20 字节）：
+  object_id:      uint32 LE（可达对象）
+  root_info:      uint32 LE（上下文相关）
+  root_kind:      uint16 LE（0-10）
+  class_serial:   uint32 LE（通常是常量系统类）
   pad:            uint32 LE
   extra:          uint16 LE
 ```
 
-**Root kinds:**
+**Root kinds：**
 - 0 = JAVA_STACK
 - 1 = NATIVE_STACK
 - 2 = SYSTEM_CLASS
@@ -131,71 +131,71 @@ hprof-libs format (20 bytes per entry):
 - 9 = DAEMON_WORKER
 - 10 = UNKNOWN
 
-**Two observed chunk sizes:**
-- Small chunks (~63B): contain 2-3 entries plus prefix/padding. May have a non-standard 4-byte prefix (`3F 21` or `3F 00`) before the first entry.
-- Large chunks (up to 34KB): contain ~1700 entries densely packed.
+**观察到两种 chunk 尺寸：**
+- 小 chunk（~63B）：包含 2-3 条条目加上 prefix/padding。第一条条目前可能有非标准的 4 字节 prefix（`3F 21` 或 `3F 00`）。
+- 大 chunk（最大 34KB）：紧密排列约 1700 条条目。
 
-**Verified parsing** (@0x665310, len=63):
+**已验证解析**（@0x665310，len=63）：
 ```
 Prefix: 3F 21 14 9E
 Entry 0: obj_id=0x00000024, root_info=0x096F0000, root_kind=30918, class_serial=0x14000000
 Entry 1: obj_id=0x096F1024, root_info=0x000078C6, root_kind=0 (JAVA_STACK), class_serial=0x249E1423
 ```
 
-Note: root_kind values must be validated (<=10) before interpreting. Some chunks are all padding (`3F 00` repeated).
+注意：解释之前必须验证 root_kind 值（<=10）。某些 chunk 全是 padding（重复的 `3F 00`）。
 
 ### THREAD_SUSPEND (0x0003)
 
 ```
-hprof-libs format (marker-based table with 0A 7F 13 markers):
+hprof-libs 格式（带 0A 7F 13 markers 的 marker-based 表）：
   [entry_data(variable)] [0A 7F 13 counter(1) pad(2: 00 40)]
 
-  entry_data contains:
-    thread_obj_id(4B LE) — object ID used to link from SAMPLE_GC_HEAP.root_info when root_kind=JAVA_STACK
-    suspend_type(1B) — 0=suspend, 1=yield, etc.
+  entry_data 包含：
+    thread_obj_id(4B LE) — 用于从 SAMPLE_GC_HEAP.root_info 链接的对象 ID（当 root_kind=JAVA_STACK 时）
+    suspend_type(1B) — 0=suspend, 1=yield, 等。
 
-  The marker sequence is 0A 7F 13. The counter byte is a sequential thread index.
-  The pad bytes are always 0x00 0x40.
-  Entry size is fixed at 9 bytes: obj_id(4) + 0x0A + 0x7F + 0x13 + counter(1) + pad(2).
+  marker 序列为 0A 7F 13。counter 字节是顺序线程索引。
+  pad 字节始终为 0x00 0x40。
+  条目大小固定为 9 字节：obj_id(4) + 0x0A + 0x7F + 0x13 + counter(1) + pad(2)。
 ```
 
-**Reverse-engineered layout** (verified on `taqu_android_client_logfile_*.hprof`):
-- The chunk payload begins with a dense table of 9-byte entries separated by `0A 7F 13` markers
-- After the marker table, thread metadata follows (variable length, may include thread names as string_id references)
-- A single 16KB chunk can contain ~1820 thread entries (16384/9)
-- **Thread names are NOT stored inline in THREAD_SUSPEND**. They are resolved via the STRING_DUMP table using string_id lookups.
-- Frame IDs referenced by threads are resolved through STACK_FRAME chunks.
+**在 `taqu_android_client_logfile_*.hprof` 上验证的逆向布局**：
+- chunk payload 以密集的 9 字节条目表开始，由 `0A 7F 13` markers 分隔
+- marker 表之后，跟随线程元数据（变长，可能包含作为 string_id 引用形式的线程名）
+- 单个 16KB chunk 可包含约 1820 个线程条目（16384/9）
+- **线程名不内联存储在 THREAD_SUSPEND 中**。它们通过 STRING_DUMP 表使用 string_id 查找来解析。
+- 线程引用的 Frame IDs 通过 STACK_FRAME chunks 解析。
 
-**Returns**: dict mapping thread_obj_id -> {
-    'name': str,          # resolved via STRING_DUMP string_table
+**返回**：dict mapping thread_obj_id -> {
+    'name': str,          # 通过 STRING_DUMP string_table 解析
     'suspend_type': int,
-    'frame_ids': [int, ...],  # resolved via STACK_FRAME chunks
+    'frame_ids': [int, ...],  # 通过 STACK_FRAME chunks 解析
 }
 
 ### STACK_FRAME (0x0002)
 
 ```
-hprof-libs format (marker-based table using 00 40 00 XX separators):
+hprof-libs 格式（使用 00 40 00 XX 分隔符的 marker-based 表）：
   [entry_data(variable)] [00 40 00 class_serial(1B)]
 
-  entry_data contains:
-    frame_id(4B LE) — unique frame identifier
-    type_code(1B) — 0x02=has instances, 0x0A=no instances, etc.
+  entry_data 包含：
+    frame_id(4B LE) — 唯一帧标识符
+    type_code(1B) — 0x02=有实例, 0x0A=无实例, 等。
 
-  The XX byte of the marker is the NEXT class_serial.
-  Marker-based entries are typically 5 bytes each.
+  marker 的 XX 字节是下一个 class_serial。
+  Marker-based 条目通常每条 5 字节。
 ```
 
-**Pre-marker block**: The data before the first `00 40 00` marker may contain initial frame records in a different format:
+**Pre-marker block**：第一个 `00 40 00` marker 之前的数据可能以不同格式包含初始帧记录：
 ```
 frame_id(4B LE) + class_serial(4B LE) + pad(4B LE) + method_index(4B LE) + line_number(4B LE)
 ```
 
-**Returns**: dict mapping frame_id -> {
+**返回**：dict mapping frame_id -> {
     'class_serial': int,
-    'class_name': str,       # resolved via string_table
+    'class_name': str,       # 通过 string_table 解析
     'method_index': int,
-    'method_name': str,      # resolved via string_table
+    'method_name': str,      # 通过 string_table 解析
     'line_number': int,
     'type_code': int
 }
@@ -208,11 +208,11 @@ object_id:      uint32 LE
 field_data:     variable
 ```
 
-Field data format depends on context:
-- For class definitions: `field_name + 0x01 + 7_zero_bytes + string_length(1B) + pointer(4B)`
-- For instance data: `field_offset(2B) + type_code(1B) + value(variable)`
+字段数据格式取决于上下文：
+- 对于类定义：`field_name + 0x01 + 7_zero_bytes + string_length(1B) + pointer(4B)`
+- 对于实例数据：`field_offset(2B) + type_code(1B) + value(variable)`
 
-**Verified example** (@0x5eb2a3b, len=104):
+**已验证示例**（@0x5eb2a3b，len=104）：
 ```
 class_serial=0x6FC60900, object_id=0x00000014
 field_data: 3F 00 00 00 00 1F 11 00 78 6F 09 C6 78 ...
@@ -221,26 +221,26 @@ field_data: 3F 00 00 00 00 1F 11 00 78 6F 09 C6 78 ...
 ### CHAIN_INSTANCE (0x0019)
 
 ```
-Contains Kotlin synthetic field metadata and class chain information.
-Entries: field_name + 0x01 + 8_bytes_metadata
-Example strings: "$this$coroutineScope", "$this$launchWhenResumed", "$this$liveData"
+包含 Kotlin synthetic 字段元数据和类链信息。
+条目：field_name + 0x01 + 8_bytes_metadata
+示例字符串："$this$coroutineScope", "$this$launchWhenResumed", "$this$liveData"
 ```
 
-## Parsing Strategy
+## 解析策略
 
-1. Read magic and stated header size from file header
-2. If stated_header_size > 2000, use hprof-libs format (chunks at 0x80)
-3. Otherwise, use standard hprof-heap format (records at 16 + stated_header_size)
-4. Scan chunk stream for valid tags, skipping unknown/padding chunks
-5. Parse each chunk type according to its payload format
-6. Correlate data across chunk types using serial numbers and object IDs
+1. 从文件头部读取 magic 和 stated header size
+2. 如果 stated_header_size > 2000，使用 hprof-libs 格式（chunks 在 0x80）
+3. 否则，使用标准 hprof-heap 格式（records 在 16 + stated_header_size）
+4. 扫描 chunk 流以查找有效 tags，跳过未知/填充 chunks
+5. 根据各 chunk 类型的 payload 格式解析每个 chunk
+6. 使用 serial numbers 和 object IDs 跨 chunk 类型关联数据
 
-## Differences from Standard hprof-heap
+## 与标准 hprof-heap 的差异
 
-| Aspect | hprof-heap (standard) | hprof-libs (Android 7+) |
-|--------|----------------------|------------------------|
-| Record header | 8 bytes (tag 4B + length 4B) | 4 bytes (tag 2B + length 2B) |
-| Record start | 16 + stated_header_size | 0x80 (fixed) |
-| Endianness | Little-endian | Little-endian |
-| Header size | Typically 128 | Typically 13102+ |
-| Compression | None | May include compressed sections |
+| 方面 | hprof-heap（标准） | hprof-libs（Android 7+） |
+|------|-------------------|--------------------------|
+| 记录头部 | 8 字节（tag 4B + length 4B） | 4 字节（tag 2B + length 2B） |
+| 记录起始 | 16 + stated_header_size | 0x80（固定） |
+| 字节序 | 小端 | 小端 |
+| Header 大小 | 通常 128 | 通常 13102+ |
+| 压缩 | 无 | 可能包含压缩段 |

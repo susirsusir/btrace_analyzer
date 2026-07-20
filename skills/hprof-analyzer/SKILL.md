@@ -1,34 +1,36 @@
 ---
 name: hprof-analyzer
-description: Analyze Android hprof heap dump files to detect memory leaks, analyze object distribution, and generate comprehensive memory reports. Use when the user provides a .hprof file path, wants to analyze memory leaks, or needs heap dump inspection. Supports both standard hprof-heap and Android hprof-libs formats.
+description: 分析 Android hprof 堆转储文件以检测内存泄漏、分析对象分布并生成全面的内存报告。当用户提供 .hprof 文件路径、想要分析内存泄漏或需要堆转储检查时使用。支持标准 hprof-heap 和 Android hprof-libs 两种格式。
 ---
 
-## Overview
+## 概述
 
-This skill analyzes Android `.hprof` heap dump files to detect memory leaks, analyze object distribution, and generate comprehensive memory reports. It supports both the **standard hprof-heap format** and **Android hprof-libs format** (Android 7.0+, the default format on modern Android devices).
+本技能分析 Android `.hprof` 堆转储文件，检测内存泄漏、分析对象分布并生成全面的内存报告。支持 **标准 hprof-heap 格式**和 **Android hprof-libs 格式**（Android 7.0+，现代 Android 设备默认格式）。
 
-## Input Requirements
+> **参考**: `android-hprof-analyzer` 技能使用 Parquet/DuckDB 方案，可作为格式逆向和报告生成的参考，但不要照抄其 MCP 工具调用方式。本技能采用纯 Python 直接解析 hprof 二进制格式。
 
-- A `.hprof` file path (local file)
+## 输入要求
 
-## Analysis Workflow
+- 一个 `.hprof` 文件路径（本地文件）
 
-### Step 1: Verify File Format
+## 分析工作流
 
-Check the binary header to determine the hprof format variant:
+### 第一步：验证文件格式
+
+检查二进制头部以确定 hprof 格式变体：
 
 ```bash
 xxd -l 32 "<hprof_file>"
 ```
 
-**Both formats share the `JAVA PROFILE 1.0` magic** in the first 12 bytes. The distinction is made by the stated header size at offset 16:
+**两种格式共享前 12 字节的 `JAVA PROFILE 1.0` magic**。区分方式是偏移 16 处的 stated header size：
 
-- **hprof-heap (standard)**: stated header size is small (typically 128)
-- **hprof-libs (Android 7.0+)**: stated header size is large (typically 13102+)
+- **hprof-heap（标准）**：stated header size 较小（通常 128）
+- **hprof-libs（Android 7.0+）**：stated header size 较大（通常 13102+）
 
-> **Detailed format comparison**: See [references/hprof-libs-vs-heap.md](references/hprof-libs-vs-heap.md) for a thorough breakdown of differences between the two formats, including why `hprof-conv` loses significant data on hprof-libs files.
+> **详细格式对比**：参见 [references/hprof-libs-vs-heap.md](references/hprof-libs-vs-heap.md)，了解两种格式的完整差异，包括为什么 `hprof-conv` 在转换 hprof-libs 时会丢失大量数据。
 
-### Step 2: Detect Format and Record Layout
+### 第二步：检测格式和记录布局
 
 ```python
 import struct, sys, os
@@ -51,18 +53,18 @@ else:
 print(f"Format: {fmt}, Records start at: 0x{record_start:X}")
 ```
 
-### Step 3: Scan All Chunks/Records
+### 第三步：扫描所有 Chunks/Records
 
-#### For hprof-libs format (Android 7.0+):
+#### 对于 hprof-libs 格式（Android 7.0+）：
 
-Records use `tag(2B LE) + length(2B LE) + payload(length-4 bytes)`:
+记录使用 `tag(2B LE) + length(2B LE) + payload(length-4 bytes)`：
 
 ```python
 import struct
 from collections import Counter, defaultdict
 
 def scan_hprof_libs_chunks(filepath):
-    """Scan Android hprof-libs format file for all valid chunks."""
+    """扫描 Android hprof-libs 格式文件中的所有有效 chunk。"""
     valid_tags = {
         0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005,
         0x0010, 0x0011, 0x0013, 0x0014, 0x0015,
@@ -85,18 +87,18 @@ def scan_hprof_libs_chunks(filepath):
             chunks.append((pos, tag, length))
             pos += length
         else:
-            pos += 1  # Scan forward for next valid chunk
+            pos += 1  # 向前扫描下一个有效 chunk
     
     return chunks
 ```
 
-#### For standard hprof-heap format:
+#### 对于标准 hprof-heap 格式：
 
-Records use `tag(4B LE) + length(4B LE) + payload(length-8 bytes)`:
+记录使用 `tag(4B LE) + length(4B LE) + payload(length-8 bytes)`：
 
 ```python
 def scan_standard_chunks(filepath):
-    """Scan standard hprof-heap format file."""
+    """扫描标准 hprof-heap 格式文件。"""
     valid_tags = {0x01, 0x02, 0x03, 0x04, 0x05,
                   0x10, 0x11, 0x13, 0x14, 0x15, 0x19}
     
@@ -122,13 +124,13 @@ def scan_standard_chunks(filepath):
     return chunks
 ```
 
-### Step 4: Parse STRING_DUMP Chunks
+### 第四步：解析 STRING_DUMP Chunks
 
-Extract the string table (class names, field names, constant strings):
+提取字符串表（类名、字段名、常量字符串）：
 
 ```python
 def parse_string_dumps(chunks, filepath):
-    """Parse STRING_DUMP chunks and build string table."""
+    """解析 STRING_DUMP chunks 并构建字符串表。"""
     strings = {}  # string_id -> text
     
     for pos, tag, length in chunks:
@@ -139,11 +141,11 @@ def parse_string_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # hprof-libs STRING_DUMP format:
+        # hprof-libs STRING_DUMP 格式：
         # string_text + 0x01 + 7_zero_bytes + 1B_value + 4B_ref
-        # The 7 zeros and 1B_value are metadata; the 4B_ref is a string_id/pointer.
-        # IMPORTANT: The first entry in a chunk may have a garbage first byte
-        # (carry-over from previous chunk's ref), so validate text is printable.
+        # 7个零和1B_value是元数据；4B_ref是 string_id/指针。
+        # 重要：chunk 的第一个条目可能有一个垃圾首字节
+        # （来自前一个 chunk 的 ref 残留），因此需要验证文本是否可打印。
         
         p = 0
         while p < len(payload) - 13:
@@ -153,7 +155,7 @@ def parse_string_dumps(chunks, filepath):
             
             text_bytes = payload[p:sep]
             
-            # Validate: all bytes must be printable ASCII
+            # 验证：所有字节必须是可打印 ASCII
             if len(text_bytes) > 0 and all(32 <= b < 127 for b in text_bytes):
                 meta = payload[sep+1:sep+13]
                 if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
@@ -166,28 +168,28 @@ def parse_string_dumps(chunks, filepath):
     return strings
 ```
 
-### Step 5: Parse CLASS_DUMP Chunks
+### 第五步：解析 CLASS_DUMP Chunks
 
-Extract class metadata (serial numbers, instance counts).
+提取类元数据（serial 编号、实例数量）。
 
-**Two observed layouts:**
+**已观察到的两种布局：**
 
-1. **Small chunks** (~64B): marker-based table using `00 40 00 XX` separators
-2. **Large chunks** (>1KB, e.g., @0x56bfd1 len=51989): dense packed records, **5 bytes each**, with `89 6F` as record terminator/marker
+1. **小 chunk（~64B）**：使用 `00 40 00 XX` 分隔符的 marker-based 表
+2. **大 chunk（>1KB，如 @0x56bfd1 len=51989）**：紧凑排列的记录，**每条 5 字节**，以 `89 6F` 作为记录终止符/标记
 
 ```python
 def parse_class_dumps(chunks, filepath):
-    """Parse CLASS_DUMP chunks to get class metadata.
+    """解析 CLASS_DUMP chunks 获取类元数据。
     
-    Handles TWO formats:
+    处理两种格式：
     
-    Format A - Small chunks (marker-based):
-      Entry format: [type_code(1B)] [instance_count(1B)] [field_info(variable)] [00 40 00 XX]
-      The marker's XX byte is the NEXT class_serial (sequential counter)
+    格式 A - 小 chunk（marker-based）：
+      条目格式：[type_code(1B)] [instance_count(1B)] [field_info(variable)] [00 40 00 XX]
+      marker 的 XX 字节是下一个 class_serial（顺序计数器）
     
-    Format B - Large chunks (dense packed):
-      Fixed 5-byte records: [class_serial(1B)] [instance_count(1B)] [type_code(1B)] [0x89] [0x6F]
-      No header, no markers between records
+    格式 B - 大 chunk（紧凑排列）：
+      固定 5 字节记录：[class_serial(1B)] [instance_count(1B)] [type_code(1B)] [0x89] [0x6F]
+      无头部，记录之间无标记
     """
     classes = {}  # class_serial -> {num_instances, ...}
     
@@ -199,17 +201,17 @@ def parse_class_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Detect format: large chunks (>1KB) with 89 6F pattern use dense format
-        # Check entire payload for 89 6F pattern (not just first 200 bytes)
+        # 检测格式：大 chunk (>1KB) 且包含 89 6F 模式的使用紧凑格式
+        # 检查整个 payload 中的 89 6F 模式（不仅检查前 200 字节）
         if length > 1000 and b'\x89\x6f' in payload:
-            # Format B: dense packed 5-byte records
+            # 格式 B：紧凑排列的 5 字节记录
             p = 0
             while p + 5 <= len(payload):
                 class_serial = payload[p]
                 instance_count = payload[p+1]
                 type_code = payload[p+2]
                 
-                # Validate: type_code should be valid (0x02, 0x0A, 0x0B, etc.)
+                # 验证：type_code 应该是有效的（0x02, 0x0A, 0x0B, 等）
                 if type_code in (0x02, 0x0A, 0x0B, 0x0C, 0x0D):
                     if instance_count != 0xFF:
                         classes[class_serial] = {
@@ -220,12 +222,12 @@ def parse_class_dumps(chunks, filepath):
                 
                 p += 5
         else:
-            # Format A: marker-based table
+            # 格式 A：marker-based 表
             first_marker = payload.find(b'\x00\x40\x00')
             if first_marker == -1:
                 continue
             
-            p = first_marker + 4  # Skip past first marker
+            p = first_marker + 4  # 跳过第一个 marker
             
             while p < len(payload) - 4:
                 next_marker = payload.find(b'\x00\x40\x00', p)
@@ -233,12 +235,12 @@ def parse_class_dumps(chunks, filepath):
                     break
                 
                 entry_data = payload[p:next_marker]
-                class_serial = payload[next_marker + 3]  # The XX byte of marker
+                class_serial = payload[next_marker + 3]  # marker 的 XX 字节
                 
                 if len(entry_data) >= 2:
                     instance_count = entry_data[1]
                     
-                    # 0xFF means unknown/special, skip
+                    # 0xFF 表示未知/特殊，跳过
                     if instance_count != 0xFF:
                         classes[class_serial] = {
                             'serial': class_serial,
@@ -250,13 +252,13 @@ def parse_class_dumps(chunks, filepath):
     return classes
 ```
 
-### Step 6: Parse LOAD_DATA Chunks
+### 第六步：解析 LOAD_DATA Chunks
 
-Extract class field layouts (maps field names to offsets):
+提取类字段布局（字段名 → 偏移映射）：
 
 ```python
 def parse_load_data(chunks, filepath):
-    """Parse LOAD_DATA chunks to get class field layouts."""
+    """解析 LOAD_DATA chunks 获取类字段布局。"""
     field_layouts = {}  # class_serial -> list of field info
     
     for pos, tag, length in chunks:
@@ -273,8 +275,8 @@ def parse_load_data(chunks, filepath):
         class_serial = struct.unpack_from('<I', payload, 0)[0]
         object_id = struct.unpack_from('<I', payload, 4)[0]
         
-        # Field data starts at offset 8
-        # In hprof-libs, fields use: field_name + 0x01 + metadata
+        # 字段数据从偏移 8 开始
+        # 在 hprof-libs 中，字段使用：field_name + 0x01 + metadata
         fields = []
         p = 8
         while p < len(payload) - 13:
@@ -284,7 +286,7 @@ def parse_load_data(chunks, filepath):
             
             field_name_bytes = payload[p:name_end]
             
-            # Validate: field name must be printable ASCII
+            # 验证：字段名必须是可打印 ASCII
             if len(field_name_bytes) > 0 and all(32 <= b < 127 for b in field_name_bytes):
                 meta = payload[name_end+1:name_end+13]
                 if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
@@ -302,32 +304,32 @@ def parse_load_data(chunks, filepath):
     return field_layouts
 ```
 
-### Step 7: Parse OBJECT_DUMP Chunks
+### 第七步：解析 OBJECT_DUMP Chunks
 
-Extract object instances and their field values.
+提取对象实例及其字段值。
 
-**Two observed layouts:**
+**已观察到的两种布局：**
 
-1. **Small chunks**: marker-based table using `00 40 00 XX` separators, entries 5-9 bytes each
-2. **Large chunks** (>1KB): dense packed records with fixed width, similar to CLASS_DUMP
+1. **小 chunk**：使用 `00 40 00 XX` 分隔符的 marker-based 表，每条 5-9 字节
+2. **大 chunk（>1KB）**：固定宽度的紧凑排列记录，与 CLASS_DUMP 类似
 
 ```python
 def parse_object_dumps(chunks, filepath):
-    """Parse OBJECT_DUMP chunks to get object instances.
+    """解析 OBJECT_DUMP chunks 获取对象实例。
     
-    Handles TWO formats:
+    处理两种格式：
     
-    Format A - Small chunks (marker-based):
+    格式 A - 小 chunk（marker-based）：
       [entry_data(variable)] [00 40 00 class_serial(1B)]
-      Entry structure (typically 5-9 bytes):
+      条目结构（通常 5-9 字节）：
         - object_id(4B LE)
         - type_code(1B) — e.g., 0x0B, 0x02, 0xFF
-        - [padding/field_data(variable, often small)]
+        - [padding/field_data(variable, 通常很小)]
     
-    Format B - Large chunks (dense packed):
-      Fixed-width records with 00 40 00 markers or 89 6F terminators
+    格式 B - 大 chunk（紧凑排列）：
+      固定宽度记录，带有 00 40 00 标记或 89 6F 终止符
     """
-    objects = []  # list of {object_id, class_serial, payload}
+    objects = []  # {object_id, class_serial, payload} 列表
     
     for pos, tag, length in chunks:
         if tag not in (0x0004, 0x04):
@@ -337,13 +339,13 @@ def parse_object_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Detect format: large chunks with dense pattern
+        # 检测格式：大 chunk 且包含紧凑模式
         if length > 1000 and b'\x89\x6f' in payload[:200]:
-            # Format B: dense packed records (similar to CLASS_DUMP)
-            # Try parsing as 5-byte records with 89 6F terminator
+            # 格式 B：紧凑排列记录（类似 CLASS_DUMP）
+            # 尝试按 5 字节记录和 89 6F 终止符解析
             p = 0
             while p + 5 <= len(payload):
-                # Check for 89 6F terminator at expected position
+                # 检查预期位置的 89 6F 终止符
                 if payload[p+3] == 0x89 and payload[p+4] == 0x6F:
                     obj_id = struct.unpack_from('<I', payload, p)[0]
                     class_serial = payload[p+3] if p+3 < len(payload) else 0
@@ -352,25 +354,25 @@ def parse_object_dumps(chunks, filepath):
                         objects.append({
                             'object_id': obj_id,
                             'class_serial': class_serial,
-                            'payload': payload[p+5:p+9],  # Remaining field data
+                            'payload': payload[p+5:p+9],  # 剩余字段数据
                         })
                     p += 5
                 else:
                     p += 1
         else:
-            # Format A: marker-based table
+            # 格式 A：marker-based 表
             first_marker = payload.find(b'\x00\x40\x00')
             if first_marker == -1:
                 continue
             
-            p = first_marker + 4  # Skip past first marker
+            p = first_marker + 4  # 跳过第一个 marker
             while p < len(payload) - 4:
                 next_marker = payload.find(b'\x00\x40\x00', p)
                 if next_marker == -1 or next_marker + 4 >= len(payload):
                     break
                 
                 entry_data = payload[p:next_marker]
-                class_serial = payload[next_marker + 3]  # The XX byte of marker
+                class_serial = payload[next_marker + 3]  # marker 的 XX 字节
                 
                 if len(entry_data) >= 4:
                     obj_id = struct.unpack_from('<I', entry_data, 0)[0]
@@ -385,13 +387,13 @@ def parse_object_dumps(chunks, filepath):
     return objects
 ```
 
-### Step 8: Parse SAMPLE_GC_HEAP Chunks
+### 第八步：解析 SAMPLE_GC_HEAP Chunks
 
-Extract GC Root information and reachable objects:
+提取 GC Root 信息和可达对象：
 
 ```python
 def parse_gc_heap_samples(chunks, filepath):
-    """Parse SAMPLE_GC_HEAP chunks for GC root information."""
+    """解析 SAMPLE_GC_HEAP chunks 获取 GC Root 信息。"""
     gc_roots = []
     
     for pos, tag, length in chunks:
@@ -402,14 +404,14 @@ def parse_gc_heap_samples(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # hprof-libs SAMPLE_GC_HEAP format:
-        # Each entry is 20 bytes:
+        # hprof-libs SAMPLE_GC_HEAP 格式：
+        # 每条 20 字节：
         #   object_id(4B LE) + root_info(4B LE) + root_kind(2B LE) +
         #   class_serial(4B LE) + pad(4B LE) + extra(2B LE)
-        # root_kind values: 0=JAVA_STACK, 1=NATIVE_STACK, 2=SYSTEM_CLASS,
+        # root_kind 值：0=JAVA_STACK, 1=NATIVE_STACK, 2=SYSTEM_CLASS,
         #   3=GC_STATIC_FIELD, 4=GC_LOCAL, 5=GC_MONITOR, 6=GC_JAVA_FRAME,
         #   7=GC_NATIVE_FRAME, 8=UNREACHABLE, 9=DAEMON_WORKER, 10=UNKNOWN
-        # class_serial is often a constant system class (e.g., 0x78c6096f = java/lang/Object)
+        # class_serial 通常是一个常量系统类（如 0x78c6096f = java/lang/Object）
         
         p = 0
         while p + 20 <= len(payload):
@@ -435,38 +437,38 @@ def parse_gc_heap_samples(chunks, filepath):
                 })
                 p += 20
             else:
-                p += 4  # Skip invalid entries instead of breaking
+                p += 4  # 跳过无效条目而不是中断
     
     return gc_roots
 ```
 
-### Step 8.5: Parse THREAD_SUSPEND Chunks
+### 第八点五步：解析 THREAD_SUSPEND Chunks
 
-Extract thread suspension snapshots — thread object IDs and frame ID lists. These are essential for building GC Root → Thread → Stack Frame reference chains.
+提取线程挂起快照——线程对象 ID 和帧 ID 列表。这些对于构建 GC Root → Thread → Stack Frame 引用链至关重要。
 
-**Critical**: Thread names are NOT stored inline in THREAD_SUSPEND chunks. They are resolved via the STRING_DUMP table using string_id lookups. The THREAD_SUSPEND chunk contains a dense marker table of thread object IDs.
+**关键**：线程名**不**存储在 THREAD_SUSPEND chunk 中。它们通过 STRING_DUMP 表使用 string_id 查找来解析。THREAD_SUSPEND chunk 包含线程对象 ID 的密集 marker 表。
 
 ```python
 def parse_thread_suspended(chunks, filepath):
-    """Parse THREAD_SUSPEND chunks to extract thread object IDs.
+    """解析 THREAD_SUSPEND chunks 提取线程对象 ID。
     
-    hprof-libs THREAD_SUSPEND uses a marker-based table with variable suspend_type:
+    hprof-libs THREAD_SUSPEND 使用带可变 suspend_type 的 marker-based 表：
       [thread_obj_id(4B LE)] [0x0A] [0x7F] [suspend_type(1B)] [counter(1B)] [pad(2B: 0x00 0x40)]
     
-    Each entry is exactly 9 bytes:
-      - thread_obj_id(4B LE) — object ID used to link from SAMPLE_GC_HEAP.root_info when root_kind=JAVA_STACK
+    每条记录恰好 9 字节：
+      - thread_obj_id(4B LE) — 用于从 SAMPLE_GC_HEAP.root_info 链接（当 root_kind=JAVA_STACK 时）
       - marker(2B: 0x0A 0x7F)
-      - suspend_type(1B) — variable byte (0x0A, 0x08, 0x06, 0x13, etc.)
-      - counter(1B) — sequential thread index
+      - suspend_type(1B) — 可变字节（0x0A, 0x08, 0x06, 0x13 等）
+      - counter(1B) — 顺序线程索引
       - pad(2B: 0x00 0x40)
     
-    Thread names must be resolved via STRING_DUMP string_table using string_id.
-    Frame IDs are resolved via STACK_FRAME chunks.
+    线程名必须通过 STRING_DUMP string_table 使用 string_id 解析。
+    帧 ID 通过 STACK_FRAME chunks 解析。
     
-    Returns: dict mapping thread_obj_id -> {
-        'name': str,          # resolved via STRING_DUMP string_table
+    返回：dict mapping thread_obj_id -> {
+        'name': str,          # 通过 STRING_DUMP 解析
         'suspend_type': int,
-        'frame_ids': [int, ...],  # resolved via STACK_FRAME chunks
+        'frame_ids': [int, ...],  # 通过 STACK_FRAME chunks 解析
     }
     """
     threads = {}  # thread_obj_id -> thread info
@@ -479,8 +481,8 @@ def parse_thread_suspended(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # Parse marker table: entries are fixed 9 bytes each
-        # Pattern: obj_id(4) + 0x0A + 0x7F + suspend_type(1) + counter(1) + pad(2)
+        # 解析 marker 表：每条记录固定 9 字节
+        # 模式：obj_id(4) + 0x0A + 0x7F + suspend_type(1) + counter(1) + pad(2)
         p = 0
         while p + 9 <= len(payload):
             thread_obj_id = struct.unpack_from('<I', payload, p)[0]
@@ -490,71 +492,72 @@ def parse_thread_suspended(chunks, filepath):
             counter = payload[p+7]
             pad = struct.unpack_from('<H', payload, p+8)[0]
             
-            # Validate marker pattern: 0A 7F followed by any suspend_type byte
-            # and pad bytes 0x00 0x40
+            # 验证 marker 模式：0A 7F 后跟任意 suspend_type 字节
+            # 以及 pad 字节 0x00 0x40
             if b4 == 0x0A and b5 == 0x7F and pad == 0x0040:
                 if thread_obj_id > 0:
                     threads[thread_obj_id] = {
-                        'name': '',  # Will be resolved via STRING_DUMP
+                        'name': '',  # 将通过 STRING_DUMP 解析
                         'suspend_type': b6,
                         'frame_ids': [],
-                        'class_serial': counter,  # Used as class_serial in marker
+                        'class_serial': counter,  # 在 marker 中用作 class_serial
                     }
                 p += 9
             else:
-                # Not a valid marker — scan forward
+                # 不是有效 marker — 向前扫描
                 p += 1
         
-        # After the marker table, search for thread metadata
-        # Thread names may be stored as string_id references in the tail
-        # Look for patterns like: string_id(4B) + thread_name_string(0x01 terminator)
-        # This requires additional parsing based on actual chunk layout
-    
+        # marker 表之后，搜索线程元数据
+        # 线程名可能以 string_id 引用形式存储在尾部
+        # 查找类似模式：string_id(4B) + thread_name_string(0x01 终止符)
+        # 这需要基于实际 chunk 布局的额外解析
+
     return threads
 ```
 
-### Step 8.6: Parse STACK_FRAME Chunks
+### 第八点六步：解析 STACK_FRAME Chunks
 
-Extract stack frame details — class/method names and line numbers per frame ID. Used to resolve `root_info` references from SAMPLE_GC_HEAP entries.
+提取栈帧详情——每个 frame ID 对应的类/方法名和行号。用于解析 SAMPLE_GC_HEAP 条目中的 `root_info` 引用。
 
-**Reverse-engineered layout**: STACK_FRAME uses `00 40 00 XX` marker-based table. Each marker-based entry is only **5 bytes**:
+**逆向得到的布局**：STACK_FRAME 使用 `00 40 00 XX` marker-based 表。每个 marker-based 条目只有 **5 字节**：
 ```
 frame_id(4B LE) + type_code(1B)
 ```
-The `XX` byte of the marker is the NEXT class_serial (sequential counter).
+marker 的 `XX` 字节是下一个 class_serial（顺序计数器）。
 
-The chunk may also contain a **pre-marker block** before the first `00 40 00` that has a different format, possibly containing:
+该 chunk 还可能包含第一个 `00 40 00` 之前的**预 marker 块**，其格式不同，可能包含：
 ```
 frame_id(4B LE) + class_serial(4B LE) + pad(4B LE) + method_index(4B LE) + line_number(4B LE)
 ```
 
-Returns: dict mapping frame_id -> {
+返回：dict mapping frame_id -> {
     'class_serial': int,
-    'class_name': str,       # resolved via string_table
+    'class_name': str,       # 通过 string_table 解析
     'method_index': int,
-    'method_name': str,      # resolved via string_table
+    'method_name': str,      # 通过 string_table 解析
     'line_number': int,
     'type_code': int
 }
+
 ```python
 def parse_stack_frames(chunks, filepath, string_table):
-    """Parse STACK_FRAME chunks to extract frame details.
+    """解析 STACK_FRAME chunks 提取帧详情。
     
-    hprof-libs STACK_FRAME uses marker-based table with 00 40 00 XX separators:
+    hprof-libs STACK_FRAME 使用带 00 40 00 XX 分隔符的 marker-based 表：
       [entry_data(variable)] [00 40 00 class_serial(1B)]
     
-    Marker-based entry structure (typically 5 bytes):
+    Marker-based 条目结构（通常 5 字节）：
       - frame_id(4B LE)
       - type_code(1B)
     
-    Pre-marker block (before first 00 40 00) may contain initial frames with full metadata:
+    预 marker 块（第一个 00 40 00 之前）可能包含带有完整元数据的初始帧：
       frame_id(4B) + class_serial(4B) + pad(4B) + method_index(4B) + line_number(4B)
     
-    Returns: dict mapping frame_id -> {
+    返回：dict mapping frame_id -> {
         'class_serial': int,
-        'class_name': str,       # resolved via string_table
+        'class_name': str,       # 通过 string_table 解析
         'method_index': int,
-        'method_name': str,      # resolved via string_table
+        'method_name': str,      # 通过 string_table 解析
         'line_number': int,
         'type_code': int
     }
@@ -569,12 +572,12 @@ def parse_stack_frames(chunks, filepath, string_table):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # First, parse the pre-marker data (before first 00 40 00)
+        # 首先，解析预 marker 数据（第一个 00 40 00 之前）
         first_marker = payload.find(b'\x00\x40\x00')
         if first_marker == -1:
             continue
         
-        # Pre-marker block may contain initial frame data
+        # 预 marker 块可能包含初始帧数据
         pre_data = payload[:first_marker]
         p = 0
         while p + 20 <= len(pre_data):
@@ -597,7 +600,7 @@ def parse_stack_frames(chunks, filepath, string_table):
                 }
             p += 20
         
-        # Then parse marker-based entries
+        # 然后解析 marker-based 条目
         p = first_marker + 4
         while p < len(payload) - 4:
             next_marker = payload.find(b'\x00\x40\x00', p)
@@ -621,42 +624,42 @@ def parse_stack_frames(chunks, filepath, string_table):
 
 
 def _resolve_method_index(method_index, string_table):
-    """Resolve a method index to a readable name using the string table.
+    """使用字符串表将方法索引解析为可读名称。
     
-    In hprof-libs, method_index maps to a string_id in STRING_DUMP chunks.
-    The string_table maps string_id -> text.
+    在 hprof-libs 中，method_index 映射到 STRING_DUMP chunks 中的 string_id。
+    string_table 将 string_id 映射到 text。
     """
     if method_index == 0:
         return '<unknown>'
     
-    # method_index is often a string_id; look it up directly
+    # method_index 通常是 string_id；直接查找
     if method_index in string_table:
         return string_table[method_index]
     
-    # Try as a serial number (some implementations use serial lookup)
+    # 尝试作为 serial 号码查找（某些实现使用 serial lookup）
     if method_index < 256:
         return f'method_index_{method_index}'
     
     return f'method_index_{method_index}'
 ```
 
-### Step 8.7: Decode root_info and Build Reference Chains
+### 第八点七步：解码 root_info 并构建引用链
 
-Correlate SAMPLE_GC_HEAP entries with THREAD_SUSPEND and STACK_FRAME data to produce human-readable reference chains.
+将 SAMPLE_GC_HEAP 条目与 THREAD_SUSPEND 和 STACK_FRAME 数据关联，生成人类可读的引用链。
 
 ```python
 def decode_root_info(gc_root, thread_map, frame_map):
-    """Interpret root_info field based on root_kind and produce a human-readable context.
+    """根据 root_kind 解释 root_info 字段并生成人类可读的上下文。
     
-    root_kind -> root_info interpretation:
-      0 (JAVA_STACK):  root_info = thread object ID → look up in thread_map
-      1 (NATIVE_STACK): root_info = native stack pointer → keep raw
-      2 (SYSTEM_CLASS): root_info = 0 typically → keep as-is
-      3 (GC_STATIC_FIELD): root_info = static field reference → need class + field
-      4 (GC_LOCAL): root_info = local var ref → look up in frame_map
-      5 (GC_MONITOR): root_info = monitor ID → keep raw
-      6 (GC_JAVA_FRAME): root_info = Java frame info → look up in frame_map
-      7+ (others): keep raw
+    root_kind -> root_info 解释：
+      0 (JAVA_STACK):  root_info = 线程对象 ID → 在 thread_map 中查找
+      1 (NATIVE_STACK): root_info = native 栈指针 → 保留原始值
+      2 (SYSTEM_CLASS): root_info = 通常为 0 → 保留原样
+      3 (GC_STATIC_FIELD): root_info = 静态字段引用 → 需要 class + field
+      4 (GC_LOCAL): root_info = 局部变量引用 → 在 frame_map 中查找
+      5 (GC_MONITOR): root_info = monitor ID → 保留原始值
+      6 (GC_JAVA_FRAME): root_info = Java 帧信息 → 在 frame_map 中查找
+      7+ (其他): 保留原始值
     """
     kind = gc_root['root_kind_raw']
     root_info = gc_root['root_info']
@@ -672,7 +675,7 @@ def decode_root_info(gc_root, thread_map, frame_map):
                 'frame_ids': t['frame_ids'],
             }
     elif kind == 4:  # GC_LOCAL
-        # root_info may be a frame_id
+        # root_info 可能是 frame_id
         if root_info in frame_map:
             decoded['context'] = {
                 'type': 'local_var',
@@ -689,14 +692,14 @@ def decode_root_info(gc_root, thread_map, frame_map):
 
 
 def build_reference_chain(gc_root, thread_map, frame_map, class_map, string_table):
-    """Build a single GC Root → Thread/Local → Stack Frame → Target Object chain.
+    """构建单条 GC Root → Thread/Local → Stack Frame → Target Object 引用链。
     
-    Returns a formatted chain dict suitable for report generation.
+    返回适合报告生成的格式化 chain dict。
     """
     kind = gc_root['kind']
     decoded = decode_root_info(gc_root, thread_map, frame_map)
     
-    # Look up target object class
+    # 查找目标对象类
     obj_id = gc_root['object_id']
     target_class = class_map.get(obj_id, 'unknown')
     target_name = target_class.get('class_name', 'unknown')
@@ -713,7 +716,7 @@ def build_reference_chain(gc_root, thread_map, frame_map, class_map, string_tabl
     if decoded['context'] and decoded['context']['type'] == 'thread':
         thread = decoded['context']
         chain['thread_name'] = thread['name']
-        # Walk frame_ids through frame_map to build stack trace
+        # 通过 frame_map 遍历 frame_ids 构建栈跟踪
         for fid in thread.get('frame_ids', []):
             if fid in frame_map:
                 f = frame_map[fid]
@@ -739,13 +742,13 @@ def build_reference_chain(gc_root, thread_map, frame_map, class_map, string_tabl
 
 
 def build_reference_chains(gc_roots, thread_map, frame_map, class_map, string_table):
-    """Build GC Root → Thread → Stack Frame → Leaked Object chains for all roots.
+    """为所有 roots 构建 GC Root → Thread → Stack Frame → Leaked Object 引用链。
     
-    Groups chains by (target_class, root_kind) to merge similar leaks.
+    按 (target_class, root_kind) 分组以合并相似的泄漏。
     
-    Returns list of chain dicts sorted by target_instance_count descending.
+    返回按 target_instance_count 降序排列的 chain dicts 列表。
     """
-    # Group by (target_class_name, root_kind)
+    # 按 (target_class_name, root_kind) 分组
     groups = {}
     unknown_count = 0
     
@@ -767,10 +770,10 @@ def build_reference_chains(gc_roots, thread_map, frame_map, class_map, string_ta
     
     result = []
     for (target_class, root_kind), group in groups.items():
-        # Pick the chain with the most stack frames as representative
+        # 选择栈帧最多的 chain 作为代表
         best_chain = max(group['chains'], key=lambda c: len(c['stack_trace']))
         
-        # Determine priority based on instance count
+        # 根据实例数确定优先级
         try:
             inst_count = int(best_chain['target_instance_count']) if best_chain['target_instance_count'] != '?' else 0
         except ValueError:
@@ -796,33 +799,33 @@ def build_reference_chains(gc_roots, thread_map, frame_map, class_map, string_ta
             'decoded_context': best_chain['decoded_context'],
         })
     
-    # Sort by instance count descending
+    # 按实例数降序排列
     result.sort(key=lambda x: (int(x['target_instance_count']) if isinstance(x['target_instance_count'], int) else 0), reverse=True)
     
     return result
 ```
 
-### Step 9: Generate Comprehensive Report
+### 第九步：生成综合报告
 
-Refer to [references/report-template.md](references/report-template.md) for the complete Markdown report template. Use it as the structure for your analysis output.
+参考 [references/report-template.md](references/report-template.md) 中的完整 Markdown 报告模板。用它作为分析输出的结构。
 
-Key sections to populate:
+需要填充的关键章节：
 
-1. **概要** — Overall health summary with key metrics table
-2. **堆分布** — Top 20 by object count and shallow size, class instance distribution histogram
-3. **GC Root 分析** — Root type distribution, suspicious reference chains with stack traces
-4. **内存泄漏检测** — High-instance classes, pattern matching (Activity leak, listener not unregistered, WebView leak, Handler leak, static collection growth)
-5. **线程快照** — Active threads and stack snapshots
-6. **风险评级** — P0-P3 severity assessment
+1. **概要** — 整体健康状况摘要，包含关键指标表
+2. **堆分布** — Top 20 对象数量和浅大小，类实例分布直方图
+3. **GC Root 分析** — Root 类型分布，可疑引用链及栈跟踪
+4. **内存泄漏检测** — 高实例数类，模式匹配（Activity 泄漏、监听器未注销、WebView 泄漏、Handler 泄漏、静态集合膨胀）
+5. **线程快照** — 活跃线程和栈快照
+6. **风险评级** — P0-P3 严重性评估
 
-To build GC Root reference chains, call the following pipeline after parsing all chunks:
+在所有 chunks 解析完成后，调用以下 pipeline 构建 GC Root 引用链：
 
 ```python
-# Pipeline: parse THREAD_SUSPEND + STACK_FRAME, then build chains
+# Pipeline: 解析 THREAD_SUSPEND + STACK_FRAME，然后构建引用链
 thread_map = parse_thread_suspended(chunks, filepath)
 frame_map = parse_stack_frames(chunks, filepath, string_table)
 
-# Build reference chains from gc_roots + thread_map + frame_map
+# 从 gc_roots + thread_map + frame_map 构建引用链
 chains = build_reference_chains(
     gc_roots=gc_roots,
     thread_map=thread_map,
@@ -831,71 +834,71 @@ chains = build_reference_chains(
     string_table=string_table,
 )
 
-# Count roots by kind for the root type distribution table
+# 按 root_kind 统计 roots 用于根类型分布表
 from collections import Counter
 root_kind_counts = Counter(root['kind'] for root in gc_roots)
 unknown_count = sum(1 for root in gc_roots if root['kind'] == 'UNKNOWN')
 total_roots = len(gc_roots)
 resolved_ratio = 1 - unknown_count / total_roots if total_roots > 0 else 0
 
-# Also decode all root_info fields for classification improvement
+# 同时解码所有 root_info 字段以改进分类
 decoded_roots = []
 for root in gc_roots:
     decoded = decode_root_info(root, thread_map, frame_map)
     decoded_roots.append(decoded)
 ```
 
-When annotating class/method names:
-- Kotlin synthetic fields (`$this$coroutineScope`, `$onCreate$1`): add `← Kotlin synthetic` annotation
-- ProGuard-obfuscated names (`a3()`, `v3()`): add `← obfuscated method (ProGuard)` — do NOT guess original names
-- DroidPlugin internals (`msdocker.*`, `Ill111l`): add `← DroidPlugin hook` annotation
+标注类名/方法名时：
+- Kotlin synthetic 字段（`$this$coroutineScope`、`$onCreate$1`）：添加 `← Kotlin synthetic` 注释
+- ProGuard 混淆名称（`a3()`、`v3()`）：添加 `← obfuscated method (ProGuard)` — 不要猜测原始名称
+- DroidPlugin 内部（`msdocker.*`、`Ill111l`）：添加 `← DroidPlugin hook` 注释
 
-### Step 10: Cross-validate with hprof-conv (optional)
+### 第十步：与 hprof-conv 交叉验证（可选）
 
-For verification, use Android SDK's `hprof-conv` to convert the file and compare key statistics:
+为了验证，使用 Android SDK 的 `hprof-conv` 转换文件并比较关键统计数据：
 
 ```bash
-# Convert hprof-libs to standard format
+# 转换 hprof-libs 为标准格式
 hprof-conv -z <input.hprof> <output_converted.hprof>
 
-# Parse the converted file with standard hprof-heap parser
-# Compare class counts and object counts
+# 使用标准 hprof-heap 解析器解析转换后的文件
+# 比较类数量和对象数量
 ```
 
-**Important**: `hprof-conv` may lose significant data when converting hprof-libs format. Use it only for cross-validation of what it CAN parse. The direct parsing approach (Steps 3-9) extracts far more data from Android hprof-libs files.
+**重要**：`hprof-conv` 在转换 hprof-libs 格式时会丢失大量数据。仅将其用于交叉验证它能解析的部分。直接解析方法（步骤 3-9）从 Android hprof-libs 文件中提取的数据远多于标准工具。
 
-## Execution Constraints
+## 执行约束
 
-- NEVER create temporary files in the user's workspace directory. Use inline Python or write temporary files to `/tmp/` only.
-- All intermediate files (parsed JSON, analysis results) should go to `/tmp/hprof_analysis/`.
-- After analysis is complete, the workspace should remain clean.
-- The hprof file may be large (100MB+). Parse efficiently using seek-based access, not full file read.
-- If the file is too large for a single pass, process chunks incrementally.
+- **切勿**在用户工作区目录中创建临时文件。使用内联 Python 或将临时文件写入 `/tmp/`。
+- 所有中间文件（解析的 JSON、分析结果）应放入 `/tmp/hprof_analysis/`。
+- 分析完成后，工作区应保持干净。
+- hprof 文件可能很大（100MB+）。使用 seek 访问高效解析，不要全文件读取。
+- 如果文件太大无法单次处理，请增量处理 chunks。
 
-## Output Convention
+## 输出约定
 
-Save the final analysis report to `hprof_analysis/<hprof_filename_without_extension>_report.md`.
+将最终分析报告保存到 `hprof_analysis/<hprof文件名_无扩展名>_report.md`。
 
-Examples:
-- Input: `dump.hprof` → Output: `hprof_analysis/dump_report.md`
-- Input: `taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` → Output: `hprof_analysis/taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`
+示例：
+- 输入：`dump.hprof` → 输出：`hprof_analysis/dump_report.md`
+- 输入：`taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` → 输出：`hprof_analysis/taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`
 
-If the `hprof_analysis/` directory doesn't exist, create it.
+如果 `hprof_analysis/` 目录不存在，请创建它。
 
-## Severity Classification for Memory Issues
+## 内存问题严重性分类
 
-| Severity | Threshold | Meaning |
-|----------|-----------|---------|
-| P0 | > 50MB leaked | Critical leak — immediate action required |
-| P1 | > 20MB leaked | Significant leak — should be fixed soon |
-| P2 | > 5MB leaked | Moderate leak — plan to fix |
-| P3 | ≤ 5MB leaked | Minor — worth noting but low priority |
+| 严重性 | 阈值 | 含义 |
+|--------|------|------|
+| P0 | > 50MB 泄漏 | 严重泄漏 — 需立即修复 |
+| P1 | > 20MB 泄漏 | 显著泄漏 — 应尽快修复 |
+| P2 | > 5MB 泄漏 | 中等泄漏 — 计划修复 |
+| P3 | ≤ 5MB 泄漏 | 轻微 — 值得关注但优先级低 |
 
-## Notes
+## 注意事项
 
-- **Kotlin synthetic fields**: Class names with `$` (e.g., `MyClass$onCreate$1`) are Kotlin-generated. Annotate with `← Kotlin synthetic` in reports.
-- **ProGuard obfuscation**: Single-letter method names (e.g., `a()`, `b()`) with digit suffixes (e.g., `a3()`) are ProGuard-obfuscated. Do NOT guess original names.
-- **DroidPlugin**: Classes with `msdocker.*` or unusual naming like `Ill111l` are DroidPlugin internals.
-- **Coroutines**: `$this$coroutineScope`, `$this$launchWhenResumed` are Kotlin coroutine synthetic fields.
-- **Android hprof-libs format**: The CLASS_DUMP, LOAD_DATA, and SAMPLE_GC_HEAP chunk formats differ from standard hprof-heap. When parsing produces obviously invalid values (e.g., instance counts > 100M), try alternative field offsets or formats.
-- If you cannot find expected data in the file, it may mean your parsing approach is wrong — try a different method rather than concluding the data doesn't exist.
+- **Kotlin synthetic 字段**：包含 `$` 的类名（如 `MyClass$onCreate$1`）是 Kotlin 生成的。在报告中添加 `← Kotlin synthetic` 注释。
+- **ProGuard 混淆**：单个字母方法名（如 `a()`、`b()`）加数字后缀（如 `a3()`）是 ProGuard 混淆的。不要猜测原始名称。
+- **DroidPlugin**：`msdocker.*` 或 `Ill111l` 等不寻常命名的类是 DroidPlugin 内部组件。
+- **Coroutines**：`$this$coroutineScope`、`$this$launchWhenResumed` 是 Kotlin 协程 synthetic 字段。
+- **Android hprof-libs 格式**：CLASS_DUMP、LOAD_DATA 和 SAMPLE_GC_HEAP 的 chunk 格式与标准 hprof-heap 不同。当解析产生明显无效值时（例如实例数 > 100M），尝试替代的字段偏移或格式。
+- 如果你在文件中找不到期望的数据，这可能意味着你的解析方法有误——尝试不同的方法，而不是得出结论说数据不存在。
