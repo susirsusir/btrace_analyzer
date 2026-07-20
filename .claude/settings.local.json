@@ -5,7 +5,20 @@
       "mcp__chrome-devtools__list_pages",
       "Read(//Users/suzhanfeng/.kiro/**)",
       "Read(//Users/suzhanfeng/.claude/**)",
-      "Bash(java *)"
+      "Bash(java *)",
+      "Read(//Users/suzhanfeng/.config/claude/**)",
+      "Read(//Users/suzhanfeng/Library/**)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(ln -s /Users/suzhanfeng/demo/btrace_analyzer/skills/register-skill ~/.kiro/skills/register-skill)",
+      "Bash(ln -s /Users/suzhanfeng/demo/btrace_analyzer/skills/register-skill ~/.claude/skills/register-skill)",
+      "Bash(mkdir -p /Users/suzhanfeng/demo/btrace_analyzer/.claude/skills)",
+      "Bash(ln -s ../../skills/register-skill /Users/suzhanfeng/demo/btrace_analyzer/.claude/skills/register-skill)",
+      "Bash(ln -s ../../skills/register-skill /Users/suzhanfeng/demo/btrace_analyzer/.kiro/skills/register-skill)",
+      "Bash(rm ~/.kiro/skills/register-skill)",
+      "Bash(rm ~/.claude/skills/register-skill)",
+      "Bash(rm -f ~/.kiro/skills/register-skill)",
+      "Bash(rm -f ~/.claude/skills/register-skill)"
     ]
   }
 }

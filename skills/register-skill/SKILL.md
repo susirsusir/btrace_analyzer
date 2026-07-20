@@ -9,50 +9,29 @@ This skill registers newly created skills so they are available as **top-level s
 
 ## How It Works
 
-There are two common setups. This script auto-detects which one you have:
+### Preferred: Project-level registration
 
-### Setup A: Symlink-based shared directory
-
-```
-~/.agents/skills/          ← source of truth
-  ├── android-cli
-  ├── find-skills
-  └── <new-skill>
-        ↑
-  ~/.kiro/skills/   →  ../../.agents/skills/   (symlink)
-  ~/.claude/skills/ →  ../../.agents/skills/   (symlink)
-```
-
-In this case, placing a skill in `~/.agents/skills/` makes it visible everywhere.
-
-### Setup B: Independent directories (most common)
+Skills are registered inside the project under `.claude/skills/` and `.kiro/skills/`, pointing to the canonical `skills/` directory. This keeps skills tied to the project — cloning the repo makes them immediately available without any global setup.
 
 ```
-~/.agents/skills/        ← may exist but is NOT linked by Kiro/Claude
-~/.kiro/skills/          ← independent directory, Kiro reads from here
-  ├── android-cli        ← copied or symlinked here
-  └── <new-skill>
-
-~/.claude/skills/        ← independent directory, Claude Code reads from here
-  ├── android-cli        ← copied or symlinked here
-  ├── kotlin-file-headers
-  └── <new-skill>
+<project>/
+  skills/
+    hprof-analyzer/        ← source of truth
+    btrace-analyzer/
+    register-skill/
+  .claude/
+    skills/
+      hprof-analyzer → ../../skills/hprof-analyzer
+      register-skill → ../../skills/register-skill
+  .kiro/
+    skills/
+      hprof-analyzer → ../../skills/hprof-analyzer
+      register-skill → ../../skills/register-skill
 ```
 
-In this case, the skill must be registered into **each** directory separately.
+### Fallback: Global/shared directory registration
 
-### Setup C: Mixed
-
-Some entries in `~/.kiro/skills/` or `~/.claude/skills/` may be symlinks to `~/.agents/skills/`, while others are independent copies. The script handles both per-directory.
-
-## Detection Logic
-
-For each target directory (`~/.kiro/skills/` and `~/.claude/skills/`):
-
-1. If the directory **itself** is a symlink → resolve it and install into the **target**.
-2. If the directory is a real directory → install into the directory directly.
-
-This means the same command works regardless of setup.
+If the project-level approach isn't desired, or if `~/.kiro/skills/` / `~/.claude/skills/` are symlinks to a shared directory, install into the resolved real path instead.
 
 ## Registration Steps
 
@@ -65,9 +44,41 @@ The skill directory should contain a `SKILL.md` file at its root.
 ls /path/to/skill-dir/SKILL.md
 ```
 
-### Step 2: Register the Skill
+### Step 2: Register the Skill (project-level)
 
-Run the registration script. It will print what it does for each target:
+Run this from the project root. It creates symlinks under `.claude/skills/` and `.kiro/skills/` pointing back to `skills/`:
+
+```bash
+SKILL_SRC="skills/<skill-name>"
+SKILL_NAME=$(basename "$SKILL_SRC")
+
+for PROJECT_DIR in .claude .kiro; do
+  SKILL_LINK="$PROJECT_DIR/skills/$SKILL_NAME"
+
+  if [ -L "$SKILL_LINK" ]; then
+    TARGET=$(readlink "$SKILL_LINK")
+    if [ "$TARGET" = "$SKILL_SRC" ]; then
+      echo "Already linked: $SKILL_LINK -> $SKILL_SRC"
+    else
+      rm "$SKILL_LINK"
+      ln -s "$SKILL_SRC" "$SKILL_LINK"
+      echo "Updated link: $SKILL_LINK -> $SKILL_SRC"
+    fi
+  elif [ -e "$SKILL_LINK" ]; then
+    echo "Path exists (not a symlink), skipping: $SKILL_LINK — manual review needed"
+  else
+    mkdir -p "$PROJECT_DIR/skills"
+    ln -s "$SKILL_SRC" "$SKILL_LINK"
+    echo "Linked: $SKILL_LINK -> $SKILL_SRC"
+  fi
+done
+```
+
+**Why symlink instead of copy?** During development, symlinks keep the skill in sync with the project. For final distribution, replace `ln -s` with `cp -r`.
+
+### Step 2b: Fallback — Global/shared directory registration
+
+If you prefer global registration (e.g., the project-level approach isn't suitable), install into the resolved real path of each target:
 
 ```bash
 SKILL_SRC="/path/to/skill-dir"
@@ -83,7 +94,6 @@ for TARGET_DIR in ~/.kiro/skills ~/.claude/skills; do
 
   if [ -L "$DEST" ]; then
     echo "Already registered (symlink): $DEST -> $(readlink "$DEST")"
-    # Update symlink if source changed
     rm "$DEST"
     ln -s "$SKILL_SRC" "$DEST"
     echo "Updated symlink: $DEST -> $SKILL_SRC"
@@ -96,37 +106,37 @@ for TARGET_DIR in ~/.kiro/skills ~/.claude/skills; do
 done
 ```
 
-**Why symlink instead of copy?** During development, symlinks keep the skill in sync with the project. For final distribution, replace `ln -s` with `cp -r`.
-
 ### Step 3: Verify Registration
 
 ```bash
-# Check each target resolved correctly
-for DIR in ~/.kiro/skills ~/.claude/skills; do
-  [ -d "$DIR" ] || continue
-  echo "=== $DIR ($(readlink -f "$DIR")) ==="
-  ls -la "$DIR"/<skill-name>/
-done
+# Check project-level links resolve correctly
+ls -la .claude/skills/<skill-name>/
+ls -la .kiro/skills/<skill-name>/
 
-# In Claude Code, the skill description from SKILL.md frontmatter should now appear
+# In Claude Code / Kiro, the skill description from SKILL.md frontmatter should now appear
 # in the available skills list for auto-triggering.
 ```
 
-## Unregistering a Skill
+## Unregistering a Skill (project-level)
 
 ```bash
-for DIR in ~/.kiro/skills ~/.claude/skills; do
-  [ -d "$DIR" ] || continue
-  REAL_DIR=$(readlink -f "$DIR" 2>/dev/null || echo "$DIR")
-  rm -f "$REAL_DIR/<skill-name>"
+SKILL_NAME="<skill-name>"
+
+for PROJECT_DIR in .claude .kiro; do
+  SKILL_LINK="$PROJECT_DIR/skills/$SKILL_NAME"
+  if [ -L "$SKILL_LINK" ]; then
+    rm "$SKILL_LINK"
+    echo "Removed: $SKILL_LINK"
+  else
+    echo "Not found or not a symlink: $SKILL_LINK"
+  fi
 done
-echo "Unregistered <skill-name> from all available skill directories."
 ```
 
-## One-Liner for Quick Registration
+## One-Liner for Quick Project-Level Registration
 
 ```bash
-SKILL_SRC="/path/to/skill-dir"; SKILL_NAME=$(basename "$SKILL_SRC"); for D in ~/.kiro/skills ~/.claude/skills; do R=$(readlink -f "$D" 2>/dev/null || echo "$D"); [ -d "$R" ] && ln -sf "$SKILL_SRC" "$R/$SKILL_NAME"; done; echo "Registered $SKILL_NAME"
+SKILL_NAME="<skill-name>"; for D in .claude .kiro; do mkdir -p "$D/skills"; ln -sf ../../skills/$SKILL_NAME "$D/skills/$SKILL_NAME"; done && echo "Registered $SKILL_NAME in project-level skills directories"
 ```
 
 ## Notes
