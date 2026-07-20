@@ -450,12 +450,13 @@ Extract thread suspension snapshots — thread object IDs and frame ID lists. Th
 def parse_thread_suspended(chunks, filepath):
     """Parse THREAD_SUSPEND chunks to extract thread object IDs.
     
-    hprof-libs THREAD_SUSPEND uses a marker-based table with 0A 7F 13 markers:
-      [thread_obj_id(4B LE)] [0x0A] [0x7F] [0x13] [counter(1B)] [pad(2B: 0x00 0x40)]
+    hprof-libs THREAD_SUSPEND uses a marker-based table with variable suspend_type:
+      [thread_obj_id(4B LE)] [0x0A] [0x7F] [suspend_type(1B)] [counter(1B)] [pad(2B: 0x00 0x40)]
     
     Each entry is exactly 9 bytes:
       - thread_obj_id(4B LE) — object ID used to link from SAMPLE_GC_HEAP.root_info when root_kind=JAVA_STACK
-      - marker(3B: 0x0A 0x7F 0x13)
+      - marker(2B: 0x0A 0x7F)
+      - suspend_type(1B) — variable byte (0x0A, 0x08, 0x06, 0x13, etc.)
       - counter(1B) — sequential thread index
       - pad(2B: 0x00 0x40)
     
@@ -479,7 +480,7 @@ def parse_thread_suspended(chunks, filepath):
             payload = f.read(length - 4)
         
         # Parse marker table: entries are fixed 9 bytes each
-        # Pattern: obj_id(4) + 0x0A + 0x7F + 0x13 + counter(1) + pad(2)
+        # Pattern: obj_id(4) + 0x0A + 0x7F + suspend_type(1) + counter(1) + pad(2)
         p = 0
         while p + 9 <= len(payload):
             thread_obj_id = struct.unpack_from('<I', payload, p)[0]
@@ -489,12 +490,13 @@ def parse_thread_suspended(chunks, filepath):
             counter = payload[p+7]
             pad = struct.unpack_from('<H', payload, p+8)[0]
             
-            # Validate marker pattern
-            if b4 == 0x0A and b5 == 0x7F and b6 == 0x13 and pad == 0x0040:
+            # Validate marker pattern: 0A 7F followed by any suspend_type byte
+            # and pad bytes 0x00 0x40
+            if b4 == 0x0A and b5 == 0x7F and pad == 0x0040:
                 if thread_obj_id > 0:
                     threads[thread_obj_id] = {
                         'name': '',  # Will be resolved via STRING_DUMP
-                        'suspend_type': 0,
+                        'suspend_type': b6,
                         'frame_ids': [],
                         'class_serial': counter,  # Used as class_serial in marker
                     }
