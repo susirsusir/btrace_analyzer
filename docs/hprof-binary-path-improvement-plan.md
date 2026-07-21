@@ -86,7 +86,7 @@ THREAD_SUSPEND 大 chunk 格式：
 ```
 
 **验收标准**：
-- [ ] 能解析所有 THREAD_SUSPEND chunks（包括大 chunk）
+- [ ] 能解析所有 THREAD_SUSPEND chunks（包括大 chunk）✅ 已完成
 - [ ] 线程数量 > 100（当前只有 6 个）✅ 已完成
 - [ ] 线程对象 ID 可用于链接 SAMPLE_GC_HEAP.root_info
 
