@@ -67,35 +67,40 @@
 
 ## 两条分析路径的独立评估
 
-本项目有两条并行分析路径，**必须分开评估**，不能混为一谈：
+本项目有两条并行分析路径，**必须分开评估**，不能混为一谈。每份报告末尾必须包含质量评分表。
 
 ### 路径 A：Parquet/DuckDB（HeapDumpStarDiver 方案）
 
-使用 `hprof-conv` + `HeapDumpStarDiver` + `DuckDB` 方案，已有完整报告 `taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`。
+使用 `hprof-conv` + `HeapDumpStarDiver` + `DuckDB` 方案。当项目 `parquet/` 目录存在 `_class_hierarchy.parquet`、`_object_index_chunk*.parquet`、`_gc_roots_chunk*.parquet` 时启用。
 
 | 维度 | 得分 | 说明 |
 |------|------|------|
-| 类名可识别度 | 4/4 | 所有类名完整可读（`com.xmhaibao.gift.bean.LiveGiftInfo`, `hb.skin.theme.*`） |
-| 对象实例关联 | 4/4 | 3,267,296 个对象全部正确归类到类 |
-| GC Root 分析 | 4/4 | 188,505 条 GC Root 已统计，通过 THREAD_SUSPEND/STACK_FRAME 解析器构建引用链，Unknown 比例 < 20% |
-| 泄漏诊断 actionable | 4/4 | 能识别 LiveGiftInfo 43,260 实例等可疑类，引用链追溯到具体类和字段，给出精确到方法的建议 |
-| 数据完整性 | 4/4 | 对象 3,267,296/3,267,296 (100%), 类 37,284, GC Root 188,505 |
-| **总分** | **20/20** | **A 级 — 优秀，开箱即用** |
+| 类名可识别度 | 4/4 | 所有类名完整可读（如 `com.xmhaibao.gift.bean.LiveGiftInfo`, `hb.skin.theme.*`） |
+| 对象实例关联 | 4/4 | 全部对象正确归类到类名 |
+| GC Root 分析 | 3-4/4 | GC Root 已统计，可通过 JOIN 查询构建引用链。Unknown 比例取决于数据质量 |
+| 泄漏诊断 actionable | 4/4 | 能识别可疑类，通过静态字段查询找到持有者，给出精确到方法的建议 |
+| 数据完整性 | 4/4 | 对象、类、GC Root 覆盖率接近 100% |
+| **总分** | **19-20/20** | **A 级 — 优秀，开箱即用** |
 
 ### 路径 B：二进制直接解析（纯 Python 解析 hprof-libs）
 
-基于 2026-07-20 端到端验证结果：
+始终执行，作为补充/独立分析。
 
 | 维度 | 得分 | 说明 |
 |------|------|------|
-| 类名可识别度 | 2/4 | 小 chunk 类名可读，但大 chunk（>1KB）未解析，仅 103/37,284 个类（0.3%） |
-| 对象实例关联 | 1/4 | 仅解析 1,306/3,267,296 个对象（0.04%），大部分数据丢失 |
-| GC Root 分析 | 1/4 | 仅解析 50/188,505 个 root（0.03%），无法构建有意义的引用链 |
-| 泄漏诊断 actionable | 1/4 | 无法生成有意义的泄漏诊断报告 |
-| 数据完整性 | 1/4 | 大 chunk（CLASS_DUMP/OBJECT_DUMP/SAMPLE_GC_HEAP/THREAD_SUSPEND/STACK_FRAME）未正确解析 |
-| **总分** | **6/20** | **F 级 — 不可用，需要修复大 chunk 解析器** |
+| 类名可识别度 | 0-2/4 | string_id 与 class_serial 不在同一编号空间，类名通常无法解析为 `serial_X` |
+| 对象实例关联 | 0-1/4 | 大 chunk dense packed 格式未完全解析，对象覆盖率低 |
+| GC Root 分析 | 0-1/4 | 仅小 chunk 的 GC Root 可解析，无法构建有意义的引用链 |
+| 泄漏诊断 actionable | 0-1/4 | 类名丢失导致无法生成有意义的泄漏诊断 |
+| 数据完整性 | 0-1/4 | 大 chunk 未正确解析，数据丢失严重 |
+| **总分** | **0-6/20** | **F — 不可用，需要修复大 chunk 解析器** |
 
-> **重要**：之前进度文档中声称二进制路径达到 20/20 A 级是错误的。该分数实际来自 Parquet/DuckDB 路径，不应归因于二进制路径。
+> **重要**：二进制路径当前质量较低，其报告主要用于：
+> 1. 验证文件格式和 chunk 结构
+> 2. 作为 Parquet 路径的交叉参考
+> 3. 推动大 chunk 格式逆向进度
+> 
+> 不得将 Parquet 路径的数据混入二进制路径报告中。
 
 ## 已知限制
 
