@@ -313,6 +313,61 @@ def scan_standard_chunks(filepath):
                 f.seek(pos + 1)
     
     return chunks
+
+
+### 第三步半：大 chunk 紧凑格式通用解析辅助
+
+所有大 chunk 的 dense packed 格式都遵循类似模式: 固定宽度记录 + 特殊终止符 marker
+为避免每个解析器重复实现同步逻辑，提供以下通用辅助函数：
+
+```python
+def detect_dense_packed_format(payload, tag_name):
+    """检测大 chunk payload 中的紧凑格式类型。
+    
+    返回 (format_type, record_size, terminator) 或 None。
+    format_type: '89_6f', '89_14_cb', 'marker_004000', 'unknown'
+    record_size: 每条记录的字节数
+    terminator: 终止符 bytes 对象
+    """
+    if len(payload) < 100:
+        return None
+    
+    # 统计候选终止符在 payload 中的出现次数（限制在前半部分避免误判）
+    scan_limit = max(512, len(payload) // 2)
+    count_896f = sum(1 for i in range(scan_limit - 1) if payload[i:i+2] == b'\x89\x6f')
+    count_8914cb = sum(1 for i in range(scan_limit - 2) if payload[i:i+3] == b'\x89\x14\xcb')
+    count_004000 = sum(1 for i in range(scan_limit - 2) if payload[i:i+3] == b'\x00\x40\x00')
+    
+    # 紧凑格式的特征：终止符出现频率足够高（至少占 payload 的 5%）
+    if count_896f > scan_limit // 20:
+        return ('89_6f', 7, b'\x89\x6f')   # 7 = 4(obj_id) + 1(type_code) + 2(marker)
+    elif count_8914cb > scan_limit // 20:
+        return ('89_14_cb', 6, b'\x89\x14\xcb')  # 6 = 1(serial) + 1(count) + 1(type) + 3(marker)
+    elif count_004000 > scan_limit // 20:
+        return ('marker_004000', None, b'\x00\x40\x00')  # marker-based，变长条目
+    else:
+        return ('unknown', None, None)
+
+
+def find_sync_point(payload, validator, step=4, scan_limit=None):
+    """在大 chunk payload 中搜索第一个有效条目的同步点。
+    
+    用于处理前缀/填充数据。validator(offset) -> bool 判断该位置是否是有效条目。
+    step: 扫描步进（通常 4 字节对齐）。
+    scan_limit: 最大扫描范围，默认为 payload 长度的 1/4 或 4096 字节（取较大值）。
+    
+    返回同步点偏移，未找到则返回 None。
+    """
+    if scan_limit is None:
+        scan_limit = max(4096, len(payload) // 4)
+    scan_limit = min(scan_limit, len(payload))
+    
+    p = 0
+    while p + step <= scan_limit:
+        if validator(p):
+            return p
+        p += step
+    return None
 ```
 
 ### 第四步：解析 STRING_DUMP Chunks
@@ -363,24 +418,30 @@ def parse_string_dumps(chunks, filepath):
 
 提取类元数据（serial 编号、实例数量）。
 
-**已观察到的两种布局：**
+**已观察到的三种布局：**
 
 1. **小 chunk（~64B）**：使用 `00 40 00 XX` 分隔符的 marker-based 表
-2. **大 chunk（>1KB，如 @0x56bfd1 len=51989）**：紧凑排列的记录，**每条 5 字节**，以 `89 6F` 作为记录终止符/标记
+2. **大 chunk A（>1KB，如 @0x56bfd1 len=51989）**：紧凑排列的记录，**每条 5 字节**，以 `89 6F` 作为记录终止符/标记
+3. **大 chunk B（>1KB，如 @0x5A2644 len=5257）**：紧凑排列的记录，**每条 5 字节**，以 `89 14 CB` 作为记录终止符/标记（注意是 6 字节记录）
+4. **大 chunk C（marker-based）**：与格式 1 相同，但数据量大
 
 ```python
 def parse_class_dumps(chunks, filepath):
     """解析 CLASS_DUMP chunks 获取类元数据。
     
-    处理两种格式：
+    处理多种格式：
     
     格式 A - 小 chunk（marker-based）：
       条目格式：[type_code(1B)] [instance_count(1B)] [field_info(variable)] [00 40 00 XX]
       marker 的 XX 字节是下一个 class_serial（顺序计数器）
     
-    格式 B - 大 chunk（紧凑排列）：
+    格式 B - 大 chunk（紧凑排列，89 6F 终止符）：
       固定 5 字节记录：[class_serial(1B)] [instance_count(1B)] [type_code(1B)] [0x89] [0x6F]
       无头部，记录之间无标记
+    
+    格式 C - 大 chunk（紧凑排列，89 14 CB 终止符）：
+      固定 6 字节记录：[class_serial(1B)] [instance_count(1B)] [type_code(1B)] [0x89] [0x14] [0xCB]
+      无头部，记录之间无标记。注意终止符是 3 字节 \x89\x14\xCB，不是 2 字节。
     """
     classes = {}  # class_serial -> {num_instances, ...}
     
@@ -392,27 +453,57 @@ def parse_class_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # 检测格式：大 chunk (>1KB) 且包含 89 6F 模式的使用紧凑格式
-        # 检查整个 payload 中的 89 6F 模式（不仅检查前 200 字节）
-        if length > 1000 and b'\x89\x6f' in payload:
-            # 格式 B：紧凑排列的 5 字节记录
-            p = 0
+        # 检测格式（使用通用辅助函数统一判断）
+        fmt = detect_dense_packed_format(payload, 'CLASS_DUMP')
+        count_0040 = sum(1 for i in range(len(payload)-2) if payload[i:i+3] == b'\x00\x40\x00')
+        
+        # hprof 类型代码集合：0x02=数组/有实例, 0x0A=无实例, 0x0B=静态/其他,
+        # 0x08/0x10/0x18=基本类型数组变体, 0x20-0xF8=对象类型编码
+        VALID_TYPE_CODES = (
+            0x02, 0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x18,
+            0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58,
+            0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98,
+            0xA0, 0xA8, 0xB0, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8,
+            0xE0, 0xE8, 0xF0, 0xF8, 0xFF,
+        )
+        
+        if fmt and fmt[0] == '89_6f' and length > 1000:
+            # 格式 B：紧凑排列的 5 字节记录 [class_serial(1B)] [instance_count(1B)] [type_code(1B)] [0x89] [0x6F]
+            # 先搜索同步点以跳过可能的前缀/填充数据
+            sync = find_sync_point(payload, lambda p: payload[p+3:p+5] == b'\x89\x6f')
+            p = sync if sync is not None else 0
             while p + 5 <= len(payload):
                 class_serial = payload[p]
                 instance_count = payload[p+1]
                 type_code = payload[p+2]
                 
-                # 验证：type_code 应该是有效的（0x02, 0x0A, 0x0B, 等）
-                if type_code in (0x02, 0x0A, 0x0B, 0x0C, 0x0D):
+                if type_code in VALID_TYPE_CODES and instance_count != 0xFF:
+                    classes[class_serial] = {
+                        'serial': class_serial,
+                        'num_instances': instance_count,
+                        'type_code': type_code,
+                    }
+                
+                p += 5
+        elif fmt and fmt[0] == '89_14_cb' and length > 1000:
+            # 格式 C：紧凑排列的 6 字节记录，终止符为 3 字节 \x89\x14\xCB
+            sync = find_sync_point(payload, lambda p: payload[p+3:p+6] == b'\x89\x14\xcb')
+            p = sync if sync is not None else 0
+            while p + 6 <= len(payload):
+                if payload[p+3:p+6] == b'\x89\x14\xcb':
+                    class_serial = payload[p]
+                    instance_count = payload[p+1]
+                    type_code = payload[p+2]
                     if instance_count != 0xFF:
                         classes[class_serial] = {
                             'serial': class_serial,
                             'num_instances': instance_count,
                             'type_code': type_code,
                         }
-                
-                p += 5
-        else:
+                    p += 6
+                else:
+                    p += 1
+        elif count_0040 > len(payload) // 20 or length <= 1000:
             # 格式 A：marker-based 表
             first_marker = payload.find(b'\x00\x40\x00')
             if first_marker == -1:
@@ -502,7 +593,9 @@ def parse_load_data(chunks, filepath):
 **已观察到的两种布局：**
 
 1. **小 chunk**：使用 `00 40 00 XX` 分隔符的 marker-based 表，每条 5-9 字节
-2. **大 chunk（>1KB）**：固定宽度的紧凑排列记录，与 CLASS_DUMP 类似
+2. **大 chunk（>1KB）**：同样使用 `00 40 00 XX` marker-based 表，但数据量更大（如 @0x5F7D01 len=16384，包含约 706 个对象）
+
+> **注意**：OBJECT_DUMP 大 chunk 不使用 89_6F dense packed 格式，而是与 marker-based 表相同。
 
 ```python
 def parse_object_dumps(chunks, filepath):
@@ -518,7 +611,12 @@ def parse_object_dumps(chunks, filepath):
         - [padding/field_data(variable, 通常很小)]
     
     格式 B - 大 chunk（紧凑排列）：
-      固定宽度记录，带有 00 40 00 标记或 89 6F 终止符
+      记录结构：[object_id(4B LE)] [type_code(1B)] [0x89] [0x6F]
+      每条 7 字节，无头部，记录之间无标记。注意 object_id 后面紧跟 type_code，
+      然后是 2 字节终止符 \x89\x6F。
+    
+    实际验证发现 OBJECT_DUMP 大 chunk 通常使用 marker-based 格式（00 40 00 XX），
+    而非 89_6F dense packed。当前解析器已能正确处理 marker-based 格式。
     """
     objects = []  # {object_id, class_serial, payload} 列表
     
@@ -530,26 +628,37 @@ def parse_object_dumps(chunks, filepath):
             f.seek(pos + 4)
             payload = f.read(length - 4)
         
-        # 检测格式：大 chunk 且包含紧凑模式
-        if length > 1000 and b'\x89\x6f' in payload[:200]:
-            # 格式 B：紧凑排列记录（类似 CLASS_DUMP）
-            # 尝试按 5 字节记录和 89 6F 终止符解析
-            p = 0
-            while p + 5 <= len(payload):
-                # 检查预期位置的 89 6F 终止符
-                if payload[p+3] == 0x89 and payload[p+4] == 0x6F:
+        # 检测格式：使用通用辅助函数，避免启发式误判
+        fmt = detect_dense_packed_format(payload, 'OBJECT_DUMP')
+        
+        if fmt and fmt[0] == '89_6f' and length > 1000:
+            # 格式 B：紧凑排列记录
+            # 记录结构：[object_id(4B LE)] [type_code(1B)] [0x89] [0x6F]
+            # 每条 7 字节
+            sync = find_sync_point(payload, lambda p: payload[p+3:p+5] == b'\x89\x6f')
+            p = sync if sync is not None else 0
+            while p + 7 <= len(payload):
+                if payload[p+3:p+5] == b'\x89\x6f':
                     obj_id = struct.unpack_from('<I', payload, p)[0]
-                    class_serial = payload[p+3] if p+3 < len(payload) else 0
+                    type_code = payload[p+2]
                     
                     if obj_id > 0:
                         objects.append({
                             'object_id': obj_id,
-                            'class_serial': class_serial,
-                            'payload': payload[p+5:p+9],  # 剩余字段数据
+                            'class_serial': type_code,  # type_code 在此上下文中充当 class_serial
+                            'payload': payload[p+7:p+11],  # 后续字段数据（如有）
                         })
-                    p += 5
+                    p += 7
                 else:
-                    p += 1
+                    # 不对齐时向前扫描找下一个 89 6F
+                    next_pos = payload.find(b'\x89\x6f', p + 1)
+                    if next_pos == -1:
+                        break
+                    candidate = next_pos - 3
+                    if candidate >= 0 and candidate % 7 == 0:
+                        p = candidate
+                    else:
+                        p = next_pos - 3 if next_pos >= 3 else p + 1
         else:
             # 格式 A：marker-based 表
             first_marker = payload.find(b'\x00\x40\x00')
@@ -604,31 +713,52 @@ def parse_gc_heap_samples(chunks, filepath):
         #   7=GC_NATIVE_FRAME, 8=UNREACHABLE, 9=DAEMON_WORKER, 10=UNKNOWN
         # class_serial 通常是一个常量系统类（如 0x78c6096f = java/lang/Object）
         
-        p = 0
-        while p + 20 <= len(payload):
-            object_id = struct.unpack_from('<I', payload, p)[0]
-            root_info = struct.unpack_from('<I', payload, p+4)[0]
-            root_kind = struct.unpack_from('<H', payload, p+8)[0]
-            class_serial = struct.unpack_from('<I', payload, p+10)[0]
-            
-            if root_kind <= 10 and object_id > 0:
-                kind_names = {
-                    0: 'JAVA_STACK', 1: 'NATIVE_STACK', 2: 'SYSTEM_CLASS',
-                    3: 'GC_STATIC_FIELD', 4: 'GC_LOCAL', 5: 'GC_MONITOR',
-                    6: 'GC_JAVA_FRAME', 7: 'GC_NATIVE_FRAME', 8: 'UNREACHABLE',
-                    9: 'DAEMON_WORKER', 10: 'UNKNOWN',
-                }
+        kind_names = {
+            0: 'JAVA_STACK', 1: 'NATIVE_STACK', 2: 'SYSTEM_CLASS',
+            3: 'GC_STATIC_FIELD', 4: 'GC_LOCAL', 5: 'GC_MONITOR',
+            6: 'GC_JAVA_FRAME', 7: 'GC_NATIVE_FRAME', 8: 'UNREACHABLE',
+            9: 'DAEMON_WORKER', 10: 'UNKNOWN',
+        }
+        
+        # 大 chunk 可能包含前缀/填充数据（如重复的 3F 00 或 3F 21 14 9E），
+        # 不能直接从 p=0 解析。使用 find_sync_point 找到第一个有效条目。
+        sync_pos = find_sync_point(
+            payload,
+            lambda p: struct.unpack_from('<I', payload, p)[0] > 0 and
+                      struct.unpack_from('<H', payload, p + 8)[0] <= 10,
+            step=4,
+        )
+        
+        if sync_pos is not None:
+            p = sync_pos
+            while p + 20 <= len(payload):
+                object_id = struct.unpack_from('<I', payload, p)[0]
+                root_info = struct.unpack_from('<I', payload, p+4)[0]
+                root_kind = struct.unpack_from('<H', payload, p+8)[0]
+                class_serial = struct.unpack_from('<I', payload, p+10)[0]
                 
-                gc_roots.append({
-                    'kind': kind_names.get(root_kind, f'0x{root_kind:04X}'),
-                    'root_kind_raw': root_kind,
-                    'root_info': root_info,
-                    'object_id': object_id,
-                    'class_serial': class_serial,
-                })
-                p += 20
-            else:
-                p += 4  # 跳过无效条目而不是中断
+                if root_kind <= 10 and object_id > 0:
+                    gc_roots.append({
+                        'kind': kind_names.get(root_kind, f'0x{root_kind:04X}'),
+                        'root_kind_raw': root_kind,
+                        'root_info': root_info,
+                        'object_id': object_id,
+                        'class_serial': class_serial,
+                    })
+                    p += 20
+                else:
+                    # 遇到无效条目，尝试在下一个 4 字节边界重新同步
+                    p += 4
+                    resync = find_sync_point(
+                        payload[p:],
+                        lambda q: struct.unpack_from('<I', payload, p + q)[0] > 0 and
+                                  struct.unpack_from('<H', payload, p + q + 8)[0] <= 10,
+                        step=4,
+                    )
+                    if resync is not None:
+                        p += resync
+                    else:
+                        break
     
     return gc_roots
 ```
