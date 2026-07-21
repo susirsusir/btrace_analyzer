@@ -56,7 +56,7 @@
 **技术方案**：
 ```
 THREAD_SUSPEND 大 chunk 格式：
-  [thread_obj_id(4B LE)] [0x0A] [0x7F] [suspend_type(1B)] [counter(1B)] [pad(2B: 0x00 0x40)]
+  [thread_obj_id(2B LE)] [0x0A] [0x7F] [suspend_type(1B)] [counter(1B)] [pad(2B)] [extra(1B)]
   每条记录恰好 9 字节
 ```
 
