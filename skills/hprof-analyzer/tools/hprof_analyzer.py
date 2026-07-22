@@ -34,6 +34,7 @@ class HprofAnalyzer:
         self.threads = {}
         self.frames = {}
         self.field_layouts = {}
+        self.class_name_map = {}  # class_serial -> class_name (from CHUNK_HEADER)
 
     def detect_format(self):
         """Detect hprof format based on magic and stated header size."""
@@ -99,6 +100,59 @@ class HprofAnalyzer:
 
         self.string_table = strings
         return len(strings)
+
+    def parse_chunk_header_class_names(self):
+        """Parse CHUNK_HEADER chunks (tag=0x0000) to extract class_serial -> class_name mapping.
+        
+        hprof-libs format stores class name metadata in CHUNK_HEADER chunks.
+        Each entry has format:
+          [text] + 0x01 + [7_zero_bytes] + [class_serial(1B)] + [string_id(4B)]
+        
+        Returns: dict mapping class_serial (int) -> class_name (str)
+        """
+        class_map = {}
+        total_entries = 0
+        class_like_count = 0
+        
+        for pos, tag, length in self.chunks:
+            if tag != 0x0000 or length <= 1000:
+                continue
+            
+            with open(self.filepath, 'rb') as f:
+                f.seek(pos + 4)
+                payload = f.read(length - 4)
+            
+            # Parse all string entries in this chunk
+            p = 0
+            while p < len(payload) - 13:
+                sep = payload.find(b'\x01', p)
+                if sep == -1:
+                    break
+                
+                text_bytes = payload[p:sep]
+                if len(text_bytes) > 0 and all(32 <= b < 127 for b in text_bytes):
+                    meta = payload[sep+1:sep+13]
+                    if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                        class_serial = meta[7]
+                        string_id = struct.unpack_from('<I', meta, 8)[0]
+                        text = text_bytes.decode('ascii')
+                        total_entries += 1
+                        
+                        # Only keep actual class names (contain '/' or '.' or '$' and length > 8)
+                        # Filter out field names, local variables, and non-class strings
+                        # Common patterns: "com.xmhaibao...", "android....", "$Proxy1", etc.
+                        if len(text) > 8 and ('.' in text or '/' in text or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')):
+                            if not text.startswith('$SwitchMap') and not text.startswith('$$'):
+                                if class_serial not in class_map:
+                                    class_map[class_serial] = text
+                                class_like_count += 1
+                
+                p = sep + 13
+        
+        self.class_name_map = class_map
+        print(f"  Parsed {total_entries} entries from CHUNK_HEADER, {class_like_count} class-like")
+        print(f"  Mapped {len(class_map)} unique class_serials to class names")
+        return len(class_map)
 
     def detect_dense_packed_format(self, payload):
         """Detect dense packed format type in large chunks."""
@@ -409,7 +463,13 @@ class HprofAnalyzer:
         return len(threads)
 
     def parse_stack_frames(self):
-        """Parse STACK_FRAME chunks to extract frame details."""
+        """Parse STACK_FRAME chunks to extract frame details.
+        
+        STACK_FRAME uses two formats in pre-marker block:
+        1. 7-byte records: [frame_id(2B LE)] [class_serial(2B LE)] [type_code(1B)] [pad(2B)]
+        2. Marker-based table: [entry_data(variable)] [00 40 00 class_serial(1B)]
+           Entry: [frame_id(4B LE)] [type_code(1B)]
+        """
         frames = {}
 
         for pos, tag, length in self.chunks:
@@ -424,31 +484,29 @@ class HprofAnalyzer:
             if first_marker == -1:
                 continue
 
-            # Parse pre-marker block
+            # Parse pre-marker block as 7-byte records
             pre_data = payload[:first_marker]
             p = 0
-            while p + 20 <= len(pre_data):
-                frame_id = struct.unpack_from('<I', pre_data, p)[0]
-                class_serial = struct.unpack_from('<I', pre_data, p+4)[0]
-                method_index = struct.unpack_from('<I', pre_data, p+12)[0]
-                line_number = struct.unpack_from('<I', pre_data, p+16)[0] if p + 20 <= len(pre_data) else -1
-
-                if frame_id > 0:
-                    class_name = self.string_table.get(class_serial, f'class_serial_{class_serial}')
-                    method_name = f'method_index_{method_index}' if method_index > 0 else '<unknown>'
-
+            while p + 7 <= len(pre_data):
+                rec = pre_data[p:p+7]
+                # Format: [frame_id(2B LE)] [class_serial(2B LE)] [type_code(1B)] [pad(2B)]
+                frame_id = struct.unpack_from('<H', rec, 0)[0]
+                class_serial = struct.unpack_from('<H', rec, 2)[0]
+                type_code = rec[4]
+                
+                if frame_id > 0 and frame_id < 10000000 and class_serial > 0:
                     frames[frame_id] = {
                         'class_serial': class_serial,
-                        'class_name': class_name,
-                        'method_index': method_index,
-                        'method_name': method_name,
-                        'line_number': line_number,
+                        'class_name': f'class_serial_{class_serial}',
+                        'method_index': 0,
+                        'method_name': '<unknown>',
+                        'line_number': -1,
+                        'type_code': type_code,
                     }
-                p += 20
+                p += 7
 
             # Parse marker-based entries
             p = first_marker + 4
-            parsed = 0
             while p < len(payload) - 4:
                 next_marker = payload.find(b'\x00\x40\x00', p)
                 if next_marker == -1 or next_marker + 4 >= len(payload):
@@ -474,7 +532,6 @@ class HprofAnalyzer:
                                 'line_number': -1,
                                 'type_code': type_code,
                             }
-                        parsed += 1
 
                 p = next_marker + 4
 
@@ -656,6 +713,10 @@ def main():
     print("\nParsing STACK_FRAME...")
     frame_count = analyzer.parse_stack_frames()
     print(f"Parsed {frame_count} frames")
+
+    print("\nParsing CHUNK_HEADER for class names...")
+    class_name_count = analyzer.parse_chunk_header_class_names()
+    print(f"Mapped {class_name_count} class_serials to class names")
 
     print("\nGenerating binary report...")
     filename = os.path.splitext(os.path.basename(filepath))[0]
