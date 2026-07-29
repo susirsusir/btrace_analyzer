@@ -23,7 +23,17 @@
       "Bash(rm ~/.kiro/skills/register-skill)",
       "Bash(rm ~/.claude/skills/register-skill)",
       "Bash(rm -f ~/.kiro/skills/register-skill)",
-      "Bash(rm -f ~/.claude/skills/register-skill)"
+      "Bash(rm -f ~/.claude/skills/register-skill)",
+      "Bash(python3 *)",
+      "Bash(tee /tmp/workflow_output.log)",
+      "Bash(python3 workflows/workflow_runner.py --force --resume schema_analysis)",
+      "Bash(tee /tmp/schema_work.log)",
+      "Bash(python3 workflows/workflow_runner.py --force --resume writer_write)",
+      "Bash(python3 workflows/workflow_runner.py --force --resume validation)",
+      "Bash(tee /tmp/workflow_full_output.log)",
+      "Bash(tee /tmp/workflow_final.log)",
+      "Bash(python3 workflows/workflow_runner.py --force)",
+      "Bash(tee /tmp/full_workflow.log)"
     ]
   },
   "language": "chinese"

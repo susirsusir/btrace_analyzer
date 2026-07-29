@@ -1,0 +1,1270 @@
+[INFO] [2026-07-29 09:14:23] ============================================================
+[INFO] [2026-07-29 09:14:23] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 09:14:23] ============================================================
+[INFO] [2026-07-29 09:14:23] 
+========================================
+[INFO] [2026-07-29 09:14:23] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 09:14:23] ========================================
+[INFO] [2026-07-29 09:14:23] Running binary analysis...
+[INFO] [2026-07-29 09:14:23] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 09:14:23] Size: 9639904 bytes
+[INFO] [2026-07-29 09:14:23] Mach-O Header:
+[INFO] [2026-07-29 09:14:23]   
+[INFO] [2026-07-29 09:14:24] Exported Symbols (20):
+[INFO] [2026-07-29 09:14:24]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 09:14:24]                    U __NSGetArgc
+[INFO] [2026-07-29 09:14:24]                    U __NSGetArgv
+[INFO] [2026-07-29 09:14:24]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 09:14:24]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 09:14:24]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 09:14:24]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 09:14:24]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 09:14:24]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 09:14:24]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 09:14:24]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 09:14:24]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 09:14:24]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 09:14:24]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 09:14:24]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 09:14:24]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 09:14:24]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 09:14:24]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 09:14:24]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 09:14:24]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 09:14:24] Imports (15):
+[INFO] [2026-07-29 09:14:24]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 09:14:24]   __NSGetArgc
+[INFO] [2026-07-29 09:14:24]   __NSGetArgv
+[INFO] [2026-07-29 09:14:24]   __Unwind_Backtrace
+[INFO] [2026-07-29 09:14:24]   __Unwind_DeleteException
+[INFO] [2026-07-29 09:14:24]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 09:14:24]   __Unwind_GetIP
+[INFO] [2026-07-29 09:14:24]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 09:14:24]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 09:14:24]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 09:14:24]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 09:14:24]   __Unwind_RaiseException
+[INFO] [2026-07-29 09:14:24]   __Unwind_Resume
+[INFO] [2026-07-29 09:14:24]   __Unwind_SetGR
+[INFO] [2026-07-29 09:14:24]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 09:14:24] Binary analysis complete!
+[SUCCESS] [2026-07-29 09:14:24] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 09:14:24] 
+========================================
+[INFO] [2026-07-29 09:14:24] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 09:14:24] ========================================
+[INFO] [2026-07-29 09:14:24] Analyzing existing Parquet output...
+[INFO] [2026-07-29 09:14:24] Found 9541 Parquet files:
+[INFO] [2026-07-29 09:14:24]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 09:14:24]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 09:14:24]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 09:14:24]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 09:14:24]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 09:14:24]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 09:14:24]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 09:14:24]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 09:14:24]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 09:14:24]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 09:14:24]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 09:14:24]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 09:14:24]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 09:14:24]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 09:14:24]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 09:14:24]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 09:14:24]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 09:14:24]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 09:14:24]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 09:14:24]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 09:14:24] Schema of $Proxy10_393296816_chunk0.parquet:
+[ERROR] [2026-07-29 09:14:24] Stage 'schema_analysis' failed: 'ParquetFile' object has no attribute 'schema_table'
+[INFO] [2026-07-29 10:11:20] ============================================================
+[INFO] [2026-07-29 10:11:20] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 10:11:20] ============================================================
+[INFO] [2026-07-29 10:11:20] 
+========================================
+[INFO] [2026-07-29 10:11:20] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 10:11:20] ========================================
+[INFO] [2026-07-29 10:11:20] Running binary analysis...
+[INFO] [2026-07-29 10:11:20] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 10:11:20] Size: 9639904 bytes
+[INFO] [2026-07-29 10:11:20] Mach-O Header:
+[INFO] [2026-07-29 10:11:20]   
+[INFO] [2026-07-29 10:11:20] Exported Symbols (20):
+[INFO] [2026-07-29 10:11:20]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:11:20]                    U __NSGetArgc
+[INFO] [2026-07-29 10:11:20]                    U __NSGetArgv
+[INFO] [2026-07-29 10:11:20]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 10:11:20]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 10:11:20]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 10:11:20]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 10:11:20]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 10:11:20]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 10:11:20]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 10:11:20]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 10:11:20]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 10:11:20]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 10:11:20]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 10:11:20]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 10:11:20]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 10:11:20]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 10:11:20]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 10:11:20]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 10:11:20]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 10:11:20] Imports (15):
+[INFO] [2026-07-29 10:11:20]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:11:20]   __NSGetArgc
+[INFO] [2026-07-29 10:11:20]   __NSGetArgv
+[INFO] [2026-07-29 10:11:20]   __Unwind_Backtrace
+[INFO] [2026-07-29 10:11:20]   __Unwind_DeleteException
+[INFO] [2026-07-29 10:11:20]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 10:11:20]   __Unwind_GetIP
+[INFO] [2026-07-29 10:11:20]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 10:11:20]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 10:11:20]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 10:11:20]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 10:11:20]   __Unwind_RaiseException
+[INFO] [2026-07-29 10:11:20]   __Unwind_Resume
+[INFO] [2026-07-29 10:11:20]   __Unwind_SetGR
+[INFO] [2026-07-29 10:11:20]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 10:11:20] Binary analysis complete!
+[SUCCESS] [2026-07-29 10:11:20] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 10:11:20] 
+========================================
+[INFO] [2026-07-29 10:11:20] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 10:11:20] ========================================
+[INFO] [2026-07-29 10:11:20] Analyzing existing Parquet output...
+[INFO] [2026-07-29 10:11:20] Found 9541 Parquet files:
+[INFO] [2026-07-29 10:11:20]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 10:11:20]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 10:11:20]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 10:11:20]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 10:11:20]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 10:11:20]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 10:11:20]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 10:11:20]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 10:11:20]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 10:11:20]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 10:11:20]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 10:11:20]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 10:11:20]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 10:11:20]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 10:11:20]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 10:11:20]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 10:11:20]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 10:11:20]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 10:11:20]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 10:11:20]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 10:11:20] Schema of $Proxy10_393296816_chunk0.parquet:
+[ERROR] [2026-07-29 10:11:20] Stage 'schema_analysis' failed: 'pyarrow._parquet.ParquetSchema' object has no attribute 'columns'
+[INFO] [2026-07-29 10:15:51] ============================================================
+[INFO] [2026-07-29 10:15:51] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 10:15:51] ============================================================
+[INFO] [2026-07-29 10:15:51] 
+========================================
+[INFO] [2026-07-29 10:15:51] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 10:15:51] ========================================
+[INFO] [2026-07-29 10:15:51] Running binary analysis...
+[INFO] [2026-07-29 10:15:51] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 10:15:51] Size: 9639904 bytes
+[INFO] [2026-07-29 10:15:51] Mach-O Header:
+[INFO] [2026-07-29 10:15:51]   
+[INFO] [2026-07-29 10:15:51] Exported Symbols (20):
+[INFO] [2026-07-29 10:15:51]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:15:51]                    U __NSGetArgc
+[INFO] [2026-07-29 10:15:51]                    U __NSGetArgv
+[INFO] [2026-07-29 10:15:51]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 10:15:51]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 10:15:51]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 10:15:51]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 10:15:51]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 10:15:51]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 10:15:51]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 10:15:51]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 10:15:51]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 10:15:51]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 10:15:51]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 10:15:51]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 10:15:51]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 10:15:51]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 10:15:51]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 10:15:51]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 10:15:51]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 10:15:51] Imports (15):
+[INFO] [2026-07-29 10:15:51]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:15:51]   __NSGetArgc
+[INFO] [2026-07-29 10:15:51]   __NSGetArgv
+[INFO] [2026-07-29 10:15:51]   __Unwind_Backtrace
+[INFO] [2026-07-29 10:15:51]   __Unwind_DeleteException
+[INFO] [2026-07-29 10:15:51]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 10:15:51]   __Unwind_GetIP
+[INFO] [2026-07-29 10:15:51]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 10:15:51]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 10:15:51]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 10:15:51]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 10:15:51]   __Unwind_RaiseException
+[INFO] [2026-07-29 10:15:51]   __Unwind_Resume
+[INFO] [2026-07-29 10:15:51]   __Unwind_SetGR
+[INFO] [2026-07-29 10:15:51]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 10:15:51] Binary analysis complete!
+[SUCCESS] [2026-07-29 10:15:51] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 10:15:51] 
+========================================
+[INFO] [2026-07-29 10:15:51] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 10:15:51] ========================================
+[INFO] [2026-07-29 10:15:51] Analyzing existing Parquet output...
+[INFO] [2026-07-29 10:15:51] Found 9541 Parquet files:
+[INFO] [2026-07-29 10:15:51]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 10:15:51]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 10:15:51]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 10:15:51]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 10:15:51]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 10:15:51]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 10:15:51]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 10:15:51]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 10:15:51]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 10:15:51]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 10:15:51]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 10:15:51]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 10:15:51]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 10:15:51]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 10:15:51]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 10:15:51]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 10:15:51]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 10:15:51]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 10:15:51]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 10:15:51]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 10:15:51] Schema of $Proxy10_393296816_chunk0.parquet:
+[ERROR] [2026-07-29 10:15:51] Stage 'schema_analysis' failed: 'pyarrow._parquet.ParquetSchema' object has no attribute 'num_fields'
+[INFO] [2026-07-29 10:16:55] ============================================================
+[INFO] [2026-07-29 10:16:55] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 10:16:55] ============================================================
+[INFO] [2026-07-29 10:16:55] 
+========================================
+[INFO] [2026-07-29 10:16:55] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 10:16:55] ========================================
+[INFO] [2026-07-29 10:16:55] Running binary analysis...
+[INFO] [2026-07-29 10:16:55] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 10:16:55] Size: 9639904 bytes
+[INFO] [2026-07-29 10:16:55] Mach-O Header:
+[INFO] [2026-07-29 10:16:55]   
+[INFO] [2026-07-29 10:16:55] Exported Symbols (20):
+[INFO] [2026-07-29 10:16:55]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:16:55]                    U __NSGetArgc
+[INFO] [2026-07-29 10:16:55]                    U __NSGetArgv
+[INFO] [2026-07-29 10:16:55]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 10:16:55]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 10:16:55]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 10:16:55]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 10:16:55]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 10:16:55]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 10:16:55]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 10:16:55]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 10:16:55]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 10:16:55]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 10:16:55]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 10:16:55]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 10:16:55]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 10:16:55]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 10:16:55]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 10:16:55]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 10:16:55]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 10:16:55] Imports (15):
+[INFO] [2026-07-29 10:16:55]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:16:55]   __NSGetArgc
+[INFO] [2026-07-29 10:16:55]   __NSGetArgv
+[INFO] [2026-07-29 10:16:55]   __Unwind_Backtrace
+[INFO] [2026-07-29 10:16:55]   __Unwind_DeleteException
+[INFO] [2026-07-29 10:16:55]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 10:16:55]   __Unwind_GetIP
+[INFO] [2026-07-29 10:16:55]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 10:16:55]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 10:16:55]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 10:16:55]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 10:16:55]   __Unwind_RaiseException
+[INFO] [2026-07-29 10:16:55]   __Unwind_Resume
+[INFO] [2026-07-29 10:16:55]   __Unwind_SetGR
+[INFO] [2026-07-29 10:16:55]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 10:16:55] Binary analysis complete!
+[SUCCESS] [2026-07-29 10:16:55] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 10:16:55] 
+========================================
+[INFO] [2026-07-29 10:16:55] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 10:16:55] ========================================
+[INFO] [2026-07-29 10:16:55] Analyzing existing Parquet output...
+[INFO] [2026-07-29 10:16:55] Found 9541 Parquet files:
+[INFO] [2026-07-29 10:16:55]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 10:16:55]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 10:16:55]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 10:16:55]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 10:16:55]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 10:16:55]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 10:16:55]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 10:16:55]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 10:16:55]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 10:16:55]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 10:16:55]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 10:16:55]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 10:16:55]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 10:16:55]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 10:16:55]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 10:16:55]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 10:16:55]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 10:16:55]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 10:16:55]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 10:16:55]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 10:16:55] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 10:16:55]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x101a32b40>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 10:16:55]   Row count: 1
+[INFO] [2026-07-29 10:16:55] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 10:16:55] Schema analysis complete!
+[SUCCESS] [2026-07-29 10:16:55] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 10:16:55] 
+========================================
+[INFO] [2026-07-29 10:16:55] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 10:16:55] ========================================
+[INFO] [2026-07-29 10:16:55] Writing HPROF parser module...
+[INFO] [2026-07-29 10:16:55] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 10:16:55] Stage 'parser_write' completed!
+[INFO] [2026-07-29 10:16:55] 
+========================================
+[INFO] [2026-07-29 10:16:55] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 10:16:55] ========================================
+[INFO] [2026-07-29 10:16:55] Writing Parquet writer module...
+[INFO] [2026-07-29 10:16:55] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 10:16:55] Stage 'writer_write' completed!
+[INFO] [2026-07-29 10:16:55] 
+========================================
+[INFO] [2026-07-29 10:16:55] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 10:16:55] ========================================
+[INFO] [2026-07-29 10:16:55] Running integration test on sample hprof file...
+[WARN] [2026-07-29 10:16:55] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 10:16:56] Synthetic test data created
+[SUCCESS] [2026-07-29 10:16:56] Stage 'integration_test' completed!
+[INFO] [2026-07-29 10:16:56] 
+========================================
+[INFO] [2026-07-29 10:16:56] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 10:16:56] ========================================
+[INFO] [2026-07-29 10:16:56] Validating output against reference...
+[INFO] [2026-07-29 10:16:56] Reference output: 9541 Parquet files
+[INFO] [2026-07-29 10:16:56] Python converter: 2 Parquet files
+[INFO] [2026-07-29 10:16:56] Object count comparison: Reference=3267296, Python=100
+[INFO] [2026-07-29 10:16:56] Top classes from reference:
+[INFO] [2026-07-29 10:16:56]   hb.xmhaibao.hichat.HiChatPageRegistry: 1
+[INFO] [2026-07-29 10:16:56]   android.accounts.AuthenticatorDescription: 1
+[INFO] [2026-07-29 10:16:56]   com.tencent.kuikly.core.views.FooterRefreshEndState: 1
+[INFO] [2026-07-29 10:16:56]   com.xmhaihao.message.gift.MessageGiftAndPacketDialogHelper: 1
+[INFO] [2026-07-29 10:16:56]   java.time.Month[]: 1
+[ERROR] [2026-07-29 10:16:56] Stage 'validation' failed: name 'HPROF_FILE' is not defined
+[INFO] [2026-07-29 10:48:54] ============================================================
+[INFO] [2026-07-29 10:48:54] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 10:48:54] ============================================================
+[INFO] [2026-07-29 10:48:54] 
+========================================
+[INFO] [2026-07-29 10:48:54] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 10:48:54] ========================================
+[INFO] [2026-07-29 10:48:54] Running binary analysis...
+[INFO] [2026-07-29 10:48:54] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 10:48:54] Size: 9639904 bytes
+[INFO] [2026-07-29 10:48:54] Mach-O Header:
+[INFO] [2026-07-29 10:48:54]   
+[INFO] [2026-07-29 10:48:54] Exported Symbols (20):
+[INFO] [2026-07-29 10:48:54]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:48:54]                    U __NSGetArgc
+[INFO] [2026-07-29 10:48:54]                    U __NSGetArgv
+[INFO] [2026-07-29 10:48:54]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 10:48:54]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 10:48:54]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 10:48:54]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 10:48:54]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 10:48:54]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 10:48:54]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 10:48:54]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 10:48:54]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 10:48:54]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 10:48:54]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 10:48:54]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 10:48:54]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 10:48:54]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 10:48:54]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 10:48:54]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 10:48:54]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 10:48:54] Imports (15):
+[INFO] [2026-07-29 10:48:54]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 10:48:54]   __NSGetArgc
+[INFO] [2026-07-29 10:48:54]   __NSGetArgv
+[INFO] [2026-07-29 10:48:54]   __Unwind_Backtrace
+[INFO] [2026-07-29 10:48:54]   __Unwind_DeleteException
+[INFO] [2026-07-29 10:48:54]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 10:48:54]   __Unwind_GetIP
+[INFO] [2026-07-29 10:48:54]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 10:48:54]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 10:48:54]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 10:48:54]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 10:48:54]   __Unwind_RaiseException
+[INFO] [2026-07-29 10:48:54]   __Unwind_Resume
+[INFO] [2026-07-29 10:48:54]   __Unwind_SetGR
+[INFO] [2026-07-29 10:48:54]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 10:48:54] Binary analysis complete!
+[SUCCESS] [2026-07-29 10:48:54] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 10:48:54] 
+========================================
+[INFO] [2026-07-29 10:48:54] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 10:48:54] ========================================
+[INFO] [2026-07-29 10:48:54] Analyzing existing Parquet output...
+[INFO] [2026-07-29 10:48:54] Found 9541 Parquet files:
+[INFO] [2026-07-29 10:48:54]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 10:48:54]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 10:48:54]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 10:48:54]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 10:48:54]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 10:48:54]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 10:48:54]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 10:48:54]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 10:48:54]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 10:48:54]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 10:48:54]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 10:48:54]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 10:48:54]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 10:48:54]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 10:48:54]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 10:48:54]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 10:48:54]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 10:48:54]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 10:48:54]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 10:48:54]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 10:48:55] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 10:48:55]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x102af2b40>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 10:48:55]   Row count: 1
+[INFO] [2026-07-29 10:48:55] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 10:48:55] Schema analysis complete!
+[SUCCESS] [2026-07-29 10:48:55] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 10:48:55] 
+========================================
+[INFO] [2026-07-29 10:48:55] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 10:48:55] ========================================
+[INFO] [2026-07-29 10:48:55] Writing HPROF parser module...
+[INFO] [2026-07-29 10:48:55] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 10:48:55] Stage 'parser_write' completed!
+[INFO] [2026-07-29 10:48:55] 
+========================================
+[INFO] [2026-07-29 10:48:55] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 10:48:55] ========================================
+[INFO] [2026-07-29 10:48:55] Writing Parquet writer module...
+[INFO] [2026-07-29 10:48:55] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 10:48:55] Stage 'writer_write' completed!
+[INFO] [2026-07-29 10:48:55] 
+========================================
+[INFO] [2026-07-29 10:48:55] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 10:48:55] ========================================
+[INFO] [2026-07-29 10:48:55] Running integration test on sample hprof file...
+[WARN] [2026-07-29 10:48:55] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 10:48:55] Synthetic test data created
+[SUCCESS] [2026-07-29 10:48:55] Stage 'integration_test' completed!
+[INFO] [2026-07-29 10:48:55] 
+========================================
+[INFO] [2026-07-29 10:48:55] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 10:48:55] ========================================
+[INFO] [2026-07-29 10:48:55] Validating output against reference...
+[INFO] [2026-07-29 10:48:55] Reference output: 9541 Parquet files
+[INFO] [2026-07-29 10:48:55] Python converter: 2 Parquet files
+[INFO] [2026-07-29 10:48:55] Object count comparison: Reference=3267296, Python=100
+[INFO] [2026-07-29 10:48:55] Top classes from reference:
+[INFO] [2026-07-29 10:48:55]   com.getui.gtc.extension.distribution.gws.k.g$a: 1
+[INFO] [2026-07-29 10:48:55]   androidx.core.view.ViewConfigurationCompat: 1
+[INFO] [2026-07-29 10:48:55]   android.content.IRestrictionsManager$Stub: 1
+[INFO] [2026-07-29 10:48:55]   com.facebook.drawee.drawable.VisibilityCallback: 1
+[INFO] [2026-07-29 10:48:55]   android.text.TextWatcher[]: 1
+[ERROR] [2026-07-29 10:48:55] Stage 'validation' failed: name 'HPROF_FILE' is not defined
+[INFO] [2026-07-29 11:05:20] ============================================================
+[INFO] [2026-07-29 11:05:20] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 11:05:20] ============================================================
+[INFO] [2026-07-29 11:05:20] 
+========================================
+[INFO] [2026-07-29 11:05:20] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 11:05:20] ========================================
+[INFO] [2026-07-29 11:05:20] Running binary analysis...
+[INFO] [2026-07-29 11:05:20] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 11:05:20] Size: 9639904 bytes
+[INFO] [2026-07-29 11:05:20] Mach-O Header:
+[INFO] [2026-07-29 11:05:20]   
+[INFO] [2026-07-29 11:05:20] Exported Symbols (20):
+[INFO] [2026-07-29 11:05:20]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:05:20]                    U __NSGetArgc
+[INFO] [2026-07-29 11:05:20]                    U __NSGetArgv
+[INFO] [2026-07-29 11:05:20]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 11:05:20]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 11:05:20]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 11:05:20]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 11:05:20]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 11:05:20]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 11:05:20]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 11:05:20]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 11:05:20]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 11:05:20]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 11:05:20]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 11:05:20]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 11:05:20]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 11:05:20]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 11:05:20]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 11:05:20]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 11:05:20]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 11:05:20] Imports (15):
+[INFO] [2026-07-29 11:05:20]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:05:20]   __NSGetArgc
+[INFO] [2026-07-29 11:05:20]   __NSGetArgv
+[INFO] [2026-07-29 11:05:20]   __Unwind_Backtrace
+[INFO] [2026-07-29 11:05:20]   __Unwind_DeleteException
+[INFO] [2026-07-29 11:05:20]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 11:05:20]   __Unwind_GetIP
+[INFO] [2026-07-29 11:05:20]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 11:05:20]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 11:05:20]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 11:05:20]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 11:05:20]   __Unwind_RaiseException
+[INFO] [2026-07-29 11:05:20]   __Unwind_Resume
+[INFO] [2026-07-29 11:05:20]   __Unwind_SetGR
+[INFO] [2026-07-29 11:05:20]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 11:05:20] Binary analysis complete!
+[SUCCESS] [2026-07-29 11:05:20] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 11:05:20] 
+========================================
+[INFO] [2026-07-29 11:05:20] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 11:05:20] ========================================
+[INFO] [2026-07-29 11:05:20] Analyzing existing Parquet output...
+[INFO] [2026-07-29 11:05:20] Found 9541 Parquet files:
+[INFO] [2026-07-29 11:05:20]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 11:05:20]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 11:05:20]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 11:05:20]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 11:05:20]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 11:05:20]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 11:05:20]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 11:05:20]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 11:05:20]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 11:05:20]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 11:05:20]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 11:05:20]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 11:05:20]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 11:05:20]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 11:05:20]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 11:05:20]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 11:05:20]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 11:05:20]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 11:05:20]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 11:05:20]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 11:05:20] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 11:05:20]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x103dd2480>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 11:05:20]   Row count: 1
+[INFO] [2026-07-29 11:05:20] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 11:05:20] Schema analysis complete!
+[SUCCESS] [2026-07-29 11:05:20] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 11:05:20] 
+========================================
+[INFO] [2026-07-29 11:05:20] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 11:05:20] ========================================
+[INFO] [2026-07-29 11:05:20] Writing HPROF parser module...
+[INFO] [2026-07-29 11:05:20] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 11:05:20] Stage 'parser_write' completed!
+[INFO] [2026-07-29 11:05:20] 
+========================================
+[INFO] [2026-07-29 11:05:20] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 11:05:20] ========================================
+[INFO] [2026-07-29 11:05:20] Writing Parquet writer module...
+[INFO] [2026-07-29 11:05:20] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 11:05:20] Stage 'writer_write' completed!
+[INFO] [2026-07-29 11:05:20] 
+========================================
+[INFO] [2026-07-29 11:05:20] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 11:05:20] ========================================
+[INFO] [2026-07-29 11:05:20] Running integration test on sample hprof file...
+[WARN] [2026-07-29 11:05:20] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 11:05:21] Synthetic test data created
+[SUCCESS] [2026-07-29 11:05:21] Stage 'integration_test' completed!
+[INFO] [2026-07-29 11:05:21] 
+========================================
+[INFO] [2026-07-29 11:05:21] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 11:05:21] ========================================
+[INFO] [2026-07-29 11:05:21] Validating output against reference...
+[INFO] [2026-07-29 11:05:21] Reference output: 9541 Parquet files
+[INFO] [2026-07-29 11:05:21] Python converter: 2 Parquet files
+[INFO] [2026-07-29 11:05:21] Object count comparison: Reference=3267296, Python=100
+[INFO] [2026-07-29 11:05:21] Top classes from reference:
+[INFO] [2026-07-29 11:05:21]   hb.xmhaibao.hichat.HiChatPageRegistry: 1
+[INFO] [2026-07-29 11:05:21]   android.accounts.AuthenticatorDescription: 1
+[INFO] [2026-07-29 11:05:21]   com.tencent.kuikly.core.views.FooterRefreshEndState: 1
+[INFO] [2026-07-29 11:05:21]   com.xmhaihao.message.gift.MessageGiftAndPacketDialogHelper: 1
+[INFO] [2026-07-29 11:05:21]   java.time.Month[]: 1
+[INFO] [2026-07-29 11:05:21] Validation report written to /Users/suzhanfeng/demo/btrace_analyzer/test/validation_report.md
+[SUCCESS] [2026-07-29 11:05:21] Validation complete!
+[SUCCESS] [2026-07-29 11:05:21] Stage 'validation' completed!
+[INFO] [2026-07-29 11:05:21] 
+========================================
+[INFO] [2026-07-29 11:05:21] Starting: [docs_update] Update SKILL.md documentation
+[INFO] [2026-07-29 11:05:21] ========================================
+[INFO] [2026-07-29 11:05:21] Updating SKILL.md with Python Direct Mode section...
+[INFO] [2026-07-29 11:05:21] SKILL.md updated successfully!
+[SUCCESS] [2026-07-29 11:05:21] Documentation update complete!
+[SUCCESS] [2026-07-29 11:05:21] Stage 'docs_update' completed!
+[INFO] [2026-07-29 11:05:21] 
+============================================================
+[INFO] [2026-07-29 11:05:21] ALL PHASES COMPLETED SUCCESSFULLY!
+[INFO] [2026-07-29 11:05:21] ============================================================
+[INFO] [2026-07-29 11:05:21] 
+Next steps:
+[INFO] [2026-07-29 11:05:21] 1. Check test/validation_report.md for validation summary
+[INFO] [2026-07-29 11:05:21] 2. Run tests: python -m pytest test/test_hprof_parser.py
+[INFO] [2026-07-29 11:05:21] 3. Update SKILL.md as needed
+[INFO] [2026-07-29 11:26:23] ============================================================
+[INFO] [2026-07-29 11:26:23] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 11:26:23] ============================================================
+[INFO] [2026-07-29 11:26:23] 
+========================================
+[INFO] [2026-07-29 11:26:23] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 11:26:23] ========================================
+[INFO] [2026-07-29 11:26:23] Running binary analysis...
+[INFO] [2026-07-29 11:26:23] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 11:26:23] Size: 9639904 bytes
+[INFO] [2026-07-29 11:26:23] Mach-O Header:
+[INFO] [2026-07-29 11:26:23]   
+[INFO] [2026-07-29 11:26:23] Exported Symbols (20):
+[INFO] [2026-07-29 11:26:23]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:26:23]                    U __NSGetArgc
+[INFO] [2026-07-29 11:26:23]                    U __NSGetArgv
+[INFO] [2026-07-29 11:26:23]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 11:26:23]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 11:26:23]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 11:26:23]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 11:26:23]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 11:26:23]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 11:26:23]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 11:26:23]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 11:26:23]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 11:26:23]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 11:26:23]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 11:26:23]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 11:26:23]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 11:26:23]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 11:26:23]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 11:26:23]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 11:26:23]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 11:26:23] Imports (15):
+[INFO] [2026-07-29 11:26:23]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:26:23]   __NSGetArgc
+[INFO] [2026-07-29 11:26:23]   __NSGetArgv
+[INFO] [2026-07-29 11:26:23]   __Unwind_Backtrace
+[INFO] [2026-07-29 11:26:23]   __Unwind_DeleteException
+[INFO] [2026-07-29 11:26:23]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 11:26:23]   __Unwind_GetIP
+[INFO] [2026-07-29 11:26:23]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 11:26:23]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 11:26:23]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 11:26:23]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 11:26:23]   __Unwind_RaiseException
+[INFO] [2026-07-29 11:26:23]   __Unwind_Resume
+[INFO] [2026-07-29 11:26:23]   __Unwind_SetGR
+[INFO] [2026-07-29 11:26:23]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 11:26:23] Binary analysis complete!
+[SUCCESS] [2026-07-29 11:26:23] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 11:26:23] 
+========================================
+[INFO] [2026-07-29 11:26:23] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 11:26:23] ========================================
+[INFO] [2026-07-29 11:26:23] Analyzing existing Parquet output...
+[INFO] [2026-07-29 11:26:23] Found 9541 Parquet files:
+[INFO] [2026-07-29 11:26:23]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 11:26:23]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 11:26:23]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 11:26:23]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 11:26:23]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 11:26:23]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 11:26:23]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 11:26:23]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 11:26:23]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 11:26:23]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 11:26:23]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 11:26:23]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 11:26:23]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 11:26:23]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 11:26:23]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 11:26:23]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 11:26:23]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 11:26:23]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 11:26:23]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 11:26:23]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 11:26:23] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 11:26:23]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x104bbabc0>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 11:26:23]   Row count: 1
+[INFO] [2026-07-29 11:26:23] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 11:26:23] Schema analysis complete!
+[SUCCESS] [2026-07-29 11:26:23] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 11:26:23] 
+========================================
+[INFO] [2026-07-29 11:26:23] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 11:26:23] ========================================
+[INFO] [2026-07-29 11:26:23] Writing HPROF parser module...
+[INFO] [2026-07-29 11:26:23] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 11:26:23] Stage 'parser_write' completed!
+[INFO] [2026-07-29 11:26:23] 
+========================================
+[INFO] [2026-07-29 11:26:23] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 11:26:23] ========================================
+[INFO] [2026-07-29 11:26:23] Writing Parquet writer module...
+[INFO] [2026-07-29 11:26:23] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 11:26:23] Stage 'writer_write' completed!
+[INFO] [2026-07-29 11:26:23] 
+========================================
+[INFO] [2026-07-29 11:26:23] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 11:26:23] ========================================
+[INFO] [2026-07-29 11:26:23] Running integration test on sample hprof file...
+[WARN] [2026-07-29 11:26:23] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 11:26:24] Synthetic test data created
+[SUCCESS] [2026-07-29 11:26:24] Stage 'integration_test' completed!
+[INFO] [2026-07-29 11:26:24] 
+========================================
+[INFO] [2026-07-29 11:26:24] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 11:26:24] ========================================
+[INFO] [2026-07-29 11:26:24] Validating output against reference...
+[INFO] [2026-07-29 11:26:24] Reference output: 9541 Parquet files
+[INFO] [2026-07-29 11:26:24] Python converter: 2 Parquet files
+[INFO] [2026-07-29 11:26:24] Object count comparison: Reference=3267296, Python=100
+[INFO] [2026-07-29 11:26:24] Top classes from reference:
+[INFO] [2026-07-29 11:26:24]   shark.AndroidObjectInspectors$COORDINATOR: 1
+[INFO] [2026-07-29 11:26:24]   com.xmhaihao.message.widget.MessageFemaleFloatView: 1
+[INFO] [2026-07-29 11:26:24]   java.time.Instant: 1
+[INFO] [2026-07-29 11:26:24]   io.socket.client.Socket$1: 1
+[INFO] [2026-07-29 11:26:24]   android.hardware.camera2.params.OisSample: 1
+[INFO] [2026-07-29 11:26:24] Validation report written to /Users/suzhanfeng/demo/btrace_analyzer/test/validation_report.md
+[SUCCESS] [2026-07-29 11:26:24] Validation complete!
+[SUCCESS] [2026-07-29 11:26:24] Stage 'validation' completed!
+[INFO] [2026-07-29 11:26:24] 
+========================================
+[INFO] [2026-07-29 11:26:24] Starting: [docs_update] Update SKILL.md documentation
+[INFO] [2026-07-29 11:26:24] ========================================
+[INFO] [2026-07-29 11:26:24] Updating SKILL.md with Python Direct Mode section...
+[INFO] [2026-07-29 11:26:24] SKILL.md updated successfully!
+[SUCCESS] [2026-07-29 11:26:24] Documentation update complete!
+[SUCCESS] [2026-07-29 11:26:24] Stage 'docs_update' completed!
+[INFO] [2026-07-29 11:26:24] 
+============================================================
+[INFO] [2026-07-29 11:26:24] ALL PHASES COMPLETED SUCCESSFULLY!
+[INFO] [2026-07-29 11:26:24] ============================================================
+[INFO] [2026-07-29 11:26:24] 
+Next steps:
+[INFO] [2026-07-29 11:26:24] 1. Check test/validation_report.md for validation summary
+[INFO] [2026-07-29 11:26:24] 2. Run tests: python -m pytest test/test_hprof_parser.py
+[INFO] [2026-07-29 11:26:24] 3. Update SKILL.md as needed
+[INFO] [2026-07-29 11:31:36] ============================================================
+[INFO] [2026-07-29 11:31:36] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 11:31:36] ============================================================
+[INFO] [2026-07-29 11:31:36] 
+========================================
+[INFO] [2026-07-29 11:31:36] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 11:31:36] ========================================
+[INFO] [2026-07-29 11:31:36] Running binary analysis...
+[INFO] [2026-07-29 11:31:36] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 11:31:36] Size: 9639904 bytes
+[INFO] [2026-07-29 11:31:36] Mach-O Header:
+[INFO] [2026-07-29 11:31:36]   
+[INFO] [2026-07-29 11:31:36] Exported Symbols (20):
+[INFO] [2026-07-29 11:31:36]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:31:36]                    U __NSGetArgc
+[INFO] [2026-07-29 11:31:36]                    U __NSGetArgv
+[INFO] [2026-07-29 11:31:36]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 11:31:36]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 11:31:36]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 11:31:36]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 11:31:36]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 11:31:36]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 11:31:36]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 11:31:36]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 11:31:36]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 11:31:36]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 11:31:36]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 11:31:36]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 11:31:36]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 11:31:36]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 11:31:36]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 11:31:36]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 11:31:36]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 11:31:36] Imports (15):
+[INFO] [2026-07-29 11:31:36]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:31:36]   __NSGetArgc
+[INFO] [2026-07-29 11:31:36]   __NSGetArgv
+[INFO] [2026-07-29 11:31:36]   __Unwind_Backtrace
+[INFO] [2026-07-29 11:31:36]   __Unwind_DeleteException
+[INFO] [2026-07-29 11:31:36]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 11:31:36]   __Unwind_GetIP
+[INFO] [2026-07-29 11:31:36]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 11:31:36]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 11:31:36]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 11:31:36]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 11:31:36]   __Unwind_RaiseException
+[INFO] [2026-07-29 11:31:36]   __Unwind_Resume
+[INFO] [2026-07-29 11:31:36]   __Unwind_SetGR
+[INFO] [2026-07-29 11:31:36]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 11:31:37] Binary analysis complete!
+[SUCCESS] [2026-07-29 11:31:37] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 11:31:37] 
+========================================
+[INFO] [2026-07-29 11:31:37] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 11:31:37] ========================================
+[INFO] [2026-07-29 11:31:37] Analyzing existing Parquet output...
+[INFO] [2026-07-29 11:31:37] Found 9541 Parquet files:
+[INFO] [2026-07-29 11:31:37]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 11:31:37]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 11:31:37]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 11:31:37]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 11:31:37]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 11:31:37]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 11:31:37]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 11:31:37]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 11:31:37]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 11:31:37]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 11:31:37]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 11:31:37]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 11:31:37]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 11:31:37]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 11:31:37]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 11:31:37]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 11:31:37]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 11:31:37]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 11:31:37]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 11:31:37]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 11:31:37] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 11:31:37]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x100e74180>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 11:31:37]   Row count: 1
+[INFO] [2026-07-29 11:31:37] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 11:31:37] Schema analysis complete!
+[SUCCESS] [2026-07-29 11:31:37] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 11:31:37] 
+========================================
+[INFO] [2026-07-29 11:31:37] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 11:31:37] ========================================
+[INFO] [2026-07-29 11:31:37] Writing HPROF parser module...
+[INFO] [2026-07-29 11:31:37] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 11:31:37] Stage 'parser_write' completed!
+[INFO] [2026-07-29 11:31:37] 
+========================================
+[INFO] [2026-07-29 11:31:37] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 11:31:37] ========================================
+[INFO] [2026-07-29 11:31:37] Writing Parquet writer module...
+[INFO] [2026-07-29 11:31:37] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 11:31:37] Stage 'writer_write' completed!
+[INFO] [2026-07-29 11:31:37] 
+========================================
+[INFO] [2026-07-29 11:31:37] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 11:31:37] ========================================
+[INFO] [2026-07-29 11:31:37] Running integration test on sample hprof file...
+[WARN] [2026-07-29 11:31:37] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 11:33:53] ============================================================
+[INFO] [2026-07-29 11:33:53] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 11:33:53] ============================================================
+[INFO] [2026-07-29 11:33:53] 
+========================================
+[INFO] [2026-07-29 11:33:53] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 11:33:53] ========================================
+[INFO] [2026-07-29 11:33:53] Running binary analysis...
+[INFO] [2026-07-29 11:33:53] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 11:33:53] Size: 9639904 bytes
+[INFO] [2026-07-29 11:33:53] Mach-O Header:
+[INFO] [2026-07-29 11:33:53]   
+[INFO] [2026-07-29 11:33:53] Exported Symbols (20):
+[INFO] [2026-07-29 11:33:53]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:33:53]                    U __NSGetArgc
+[INFO] [2026-07-29 11:33:53]                    U __NSGetArgv
+[INFO] [2026-07-29 11:33:53]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 11:33:53]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 11:33:53]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 11:33:53]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 11:33:53]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 11:33:53]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 11:33:53]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 11:33:53]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 11:33:53]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 11:33:53]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 11:33:53]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 11:33:53]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 11:33:53]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 11:33:53]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 11:33:53]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 11:33:53]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 11:33:53]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 11:33:53] Imports (15):
+[INFO] [2026-07-29 11:33:53]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:33:53]   __NSGetArgc
+[INFO] [2026-07-29 11:33:53]   __NSGetArgv
+[INFO] [2026-07-29 11:33:53]   __Unwind_Backtrace
+[INFO] [2026-07-29 11:33:53]   __Unwind_DeleteException
+[INFO] [2026-07-29 11:33:53]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 11:33:53]   __Unwind_GetIP
+[INFO] [2026-07-29 11:33:53]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 11:33:53]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 11:33:53]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 11:33:53]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 11:33:53]   __Unwind_RaiseException
+[INFO] [2026-07-29 11:33:53]   __Unwind_Resume
+[INFO] [2026-07-29 11:33:53]   __Unwind_SetGR
+[INFO] [2026-07-29 11:33:53]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 11:33:53] Binary analysis complete!
+[SUCCESS] [2026-07-29 11:33:53] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 11:33:53] 
+========================================
+[INFO] [2026-07-29 11:33:53] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 11:33:53] ========================================
+[INFO] [2026-07-29 11:33:53] Analyzing existing Parquet output...
+[INFO] [2026-07-29 11:33:53] Found 9541 Parquet files:
+[INFO] [2026-07-29 11:33:53]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 11:33:53]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 11:33:53]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 11:33:53]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 11:33:53]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 11:33:53]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 11:33:53]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 11:33:53]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 11:33:53]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 11:33:53]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 11:33:53]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 11:33:53]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 11:33:53]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 11:33:53]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 11:33:53]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 11:33:53]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 11:33:53]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 11:33:53]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 11:33:53]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 11:33:53]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 11:33:53] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 11:33:53]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x107059840>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 11:33:53]   Row count: 1
+[INFO] [2026-07-29 11:33:53] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 11:33:53] Schema analysis complete!
+[SUCCESS] [2026-07-29 11:33:53] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 11:33:53] 
+========================================
+[INFO] [2026-07-29 11:33:53] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 11:33:53] ========================================
+[INFO] [2026-07-29 11:33:53] Writing HPROF parser module...
+[INFO] [2026-07-29 11:33:53] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 11:33:53] Stage 'parser_write' completed!
+[INFO] [2026-07-29 11:33:53] 
+========================================
+[INFO] [2026-07-29 11:33:53] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 11:33:53] ========================================
+[INFO] [2026-07-29 11:33:53] Writing Parquet writer module...
+[INFO] [2026-07-29 11:33:53] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 11:33:53] Stage 'writer_write' completed!
+[INFO] [2026-07-29 11:33:53] 
+========================================
+[INFO] [2026-07-29 11:33:53] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 11:33:53] ========================================
+[INFO] [2026-07-29 11:33:53] Running integration test on sample hprof file...
+[WARN] [2026-07-29 11:33:53] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 11:33:53] Synthetic test data created
+[SUCCESS] [2026-07-29 11:33:53] Stage 'integration_test' completed!
+[INFO] [2026-07-29 11:33:53] 
+========================================
+[INFO] [2026-07-29 11:33:53] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 11:33:53] ========================================
+[INFO] [2026-07-29 11:33:53] Validating output against reference...
+[INFO] [2026-07-29 11:33:54] Reference output: 9541 Parquet files
+[INFO] [2026-07-29 11:33:54] Python converter: 2 Parquet files
+[INFO] [2026-07-29 11:33:54] Object count comparison: Reference=3267296, Python=100
+[INFO] [2026-07-29 11:33:54] Top classes from reference:
+[INFO] [2026-07-29 11:33:54]   hb.xmhaibao.hichat.HiChatPageRegistry: 1
+[INFO] [2026-07-29 11:33:54]   android.accounts.AuthenticatorDescription: 1
+[INFO] [2026-07-29 11:33:54]   com.tencent.kuikly.core.views.FooterRefreshEndState: 1
+[INFO] [2026-07-29 11:33:54]   com.xmhaihao.message.gift.MessageGiftAndPacketDialogHelper: 1
+[INFO] [2026-07-29 11:33:54]   java.time.Month[]: 1
+[INFO] [2026-07-29 11:33:54] Validation report written to /Users/suzhanfeng/demo/btrace_analyzer/test/validation_report.md
+[SUCCESS] [2026-07-29 11:33:54] Validation complete!
+[SUCCESS] [2026-07-29 11:33:54] Stage 'validation' completed!
+[INFO] [2026-07-29 11:33:54] 
+========================================
+[INFO] [2026-07-29 11:33:54] Starting: [docs_update] Update SKILL.md documentation
+[INFO] [2026-07-29 11:33:54] ========================================
+[INFO] [2026-07-29 11:33:54] Updating SKILL.md with Python Direct Mode section...
+[INFO] [2026-07-29 11:33:54] SKILL.md updated successfully!
+[SUCCESS] [2026-07-29 11:33:54] Documentation update complete!
+[SUCCESS] [2026-07-29 11:33:54] Stage 'docs_update' completed!
+[INFO] [2026-07-29 11:33:54] 
+============================================================
+[INFO] [2026-07-29 11:33:54] ALL PHASES COMPLETED SUCCESSFULLY!
+[INFO] [2026-07-29 11:33:54] ============================================================
+[INFO] [2026-07-29 11:33:54] 
+Next steps:
+[INFO] [2026-07-29 11:33:54] 1. Check test/validation_report.md for validation summary
+[INFO] [2026-07-29 11:33:54] 2. Run tests: python -m pytest test/test_hprof_parser.py
+[INFO] [2026-07-29 11:33:54] 3. Update SKILL.md as needed
+[INFO] [2026-07-29 11:37:45] ============================================================
+[INFO] [2026-07-29 11:37:45] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 11:37:45] ============================================================
+[INFO] [2026-07-29 11:37:45] 
+========================================
+[INFO] [2026-07-29 11:37:45] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 11:37:45] ========================================
+[INFO] [2026-07-29 11:37:45] Running binary analysis...
+[INFO] [2026-07-29 11:37:45] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 11:37:45] Size: 9639904 bytes
+[INFO] [2026-07-29 11:37:45] Mach-O Header:
+[INFO] [2026-07-29 11:37:45]   
+[INFO] [2026-07-29 11:37:45] Exported Symbols (20):
+[INFO] [2026-07-29 11:37:45]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:37:45]                    U __NSGetArgc
+[INFO] [2026-07-29 11:37:45]                    U __NSGetArgv
+[INFO] [2026-07-29 11:37:45]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 11:37:45]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 11:37:45]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 11:37:45]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 11:37:45]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 11:37:45]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 11:37:45]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 11:37:45]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 11:37:45]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 11:37:45]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 11:37:45]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 11:37:45]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 11:37:45]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 11:37:45]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 11:37:45]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 11:37:45]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 11:37:45]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 11:37:45] Imports (15):
+[INFO] [2026-07-29 11:37:45]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:37:45]   __NSGetArgc
+[INFO] [2026-07-29 11:37:45]   __NSGetArgv
+[INFO] [2026-07-29 11:37:45]   __Unwind_Backtrace
+[INFO] [2026-07-29 11:37:45]   __Unwind_DeleteException
+[INFO] [2026-07-29 11:37:45]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 11:37:45]   __Unwind_GetIP
+[INFO] [2026-07-29 11:37:45]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 11:37:45]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 11:37:45]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 11:37:45]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 11:37:45]   __Unwind_RaiseException
+[INFO] [2026-07-29 11:37:45]   __Unwind_Resume
+[INFO] [2026-07-29 11:37:45]   __Unwind_SetGR
+[INFO] [2026-07-29 11:37:45]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 11:37:45] Binary analysis complete!
+[SUCCESS] [2026-07-29 11:37:45] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 11:37:45] 
+========================================
+[INFO] [2026-07-29 11:37:45] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 11:37:45] ========================================
+[INFO] [2026-07-29 11:37:45] Analyzing existing Parquet output...
+[INFO] [2026-07-29 11:37:45] Found 9541 Parquet files:
+[INFO] [2026-07-29 11:37:45]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 11:37:45]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 11:37:45]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 11:37:45]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 11:37:45]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 11:37:45]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 11:37:45]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 11:37:45]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 11:37:45]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 11:37:45]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 11:37:45]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 11:37:45]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 11:37:45]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 11:37:45]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 11:37:45]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 11:37:45]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 11:37:45]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 11:37:45]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 11:37:45]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 11:37:45]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 11:37:45] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 11:37:45]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x100c90400>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 11:37:45]   Row count: 1
+[INFO] [2026-07-29 11:37:45] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 11:37:45] Schema analysis complete!
+[SUCCESS] [2026-07-29 11:37:45] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 11:37:45] 
+========================================
+[INFO] [2026-07-29 11:37:45] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 11:37:45] ========================================
+[INFO] [2026-07-29 11:37:45] Writing HPROF parser module...
+[INFO] [2026-07-29 11:37:45] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 11:37:45] Stage 'parser_write' completed!
+[INFO] [2026-07-29 11:37:45] 
+========================================
+[INFO] [2026-07-29 11:37:45] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 11:37:45] ========================================
+[INFO] [2026-07-29 11:37:45] Writing Parquet writer module...
+[INFO] [2026-07-29 11:37:45] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 11:37:45] Stage 'writer_write' completed!
+[INFO] [2026-07-29 11:37:45] 
+========================================
+[INFO] [2026-07-29 11:37:45] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 11:37:45] ========================================
+[INFO] [2026-07-29 11:37:45] Running integration test on sample hprof file...
+[WARN] [2026-07-29 11:37:45] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 11:37:45] Synthetic test data created
+[SUCCESS] [2026-07-29 11:37:45] Stage 'integration_test' completed!
+[INFO] [2026-07-29 11:37:45] 
+========================================
+[INFO] [2026-07-29 11:37:45] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 11:37:45] ========================================
+[INFO] [2026-07-29 11:37:45] Validating output against reference...
+[INFO] [2026-07-29 11:48:41] ============================================================
+[INFO] [2026-07-29 11:48:41] HeapDumpStarDiver Reverse Engineering Workflow Started
+[INFO] [2026-07-29 11:48:41] ============================================================
+[INFO] [2026-07-29 11:48:41] 
+========================================
+[INFO] [2026-07-29 11:48:41] Starting: [binary_analysis] Analyze binary structure
+[INFO] [2026-07-29 11:48:41] ========================================
+[INFO] [2026-07-29 11:48:41] Running binary analysis...
+[INFO] [2026-07-29 11:48:41] File type: /Users/suzhanfeng/demo/btrace_analyzer/skills/android-hprof-analyzer/references/HeapDumpStarDiver: Mach-O 64-bit executable arm64
+[INFO] [2026-07-29 11:48:41] Size: 9639904 bytes
+[INFO] [2026-07-29 11:48:41] Mach-O Header:
+[INFO] [2026-07-29 11:48:41]   
+[INFO] [2026-07-29 11:48:41] Exported Symbols (20):
+[INFO] [2026-07-29 11:48:41]   U _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:48:41]                    U __NSGetArgc
+[INFO] [2026-07-29 11:48:41]                    U __NSGetArgv
+[INFO] [2026-07-29 11:48:41]   000000010056fc78 T __RNvCs1Y7DaGC1cwg_7___rustc10rust_panic
+[INFO] [2026-07-29 11:48:41]   000000010052279c T __RNvCs1Y7DaGC1cwg_7___rustc11___rdl_alloc
+[INFO] [2026-07-29 11:48:41]   000000010006653c T __RNvCs1Y7DaGC1cwg_7___rustc12___rust_alloc
+[INFO] [2026-07-29 11:48:41]   0000000100522808 T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_dealloc
+[INFO] [2026-07-29 11:48:41]   000000010052280c T __RNvCs1Y7DaGC1cwg_7___rustc13___rdl_realloc
+[INFO] [2026-07-29 11:48:41]   0000000100066540 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_dealloc
+[INFO] [2026-07-29 11:48:41]   0000000100066544 T __RNvCs1Y7DaGC1cwg_7___rustc14___rust_realloc
+[INFO] [2026-07-29 11:48:41]   00000001005228bc T __RNvCs1Y7DaGC1cwg_7___rustc17___rust_drop_panic
+[INFO] [2026-07-29 11:48:41]   00000001005229d4 T __RNvCs1Y7DaGC1cwg_7___rustc17rust_begin_unwind
+[INFO] [2026-07-29 11:48:41]   00000001005229f4 T __RNvCs1Y7DaGC1cwg_7___rustc18___rdl_alloc_zeroed
+[INFO] [2026-07-29 11:48:41]   000000010054a7c8 T __RNvCs1Y7DaGC1cwg_7___rustc18___rust_start_panic
+[INFO] [2026-07-29 11:48:41]   0000000100066548 T __RNvCs1Y7DaGC1cwg_7___rustc19___rust_alloc_zeroed
+[INFO] [2026-07-29 11:48:41]   000000010054a868 T __RNvCs1Y7DaGC1cwg_7___rustc20___rust_panic_cleanup
+[INFO] [2026-07-29 11:48:41]   0000000100522a84 T __RNvCs1Y7DaGC1cwg_7___rustc24___rust_foreign_exception
+[INFO] [2026-07-29 11:48:41]   000000010056fcc0 T __RNvCs1Y7DaGC1cwg_7___rustc26___rust_alloc_error_handler
+[INFO] [2026-07-29 11:48:41]   000000010006654c T __RNvCs1Y7DaGC1cwg_7___rustc35___rust_no_alloc_shim_is_unstable_v2
+[INFO] [2026-07-29 11:48:41]                    U __Unwind_Backtrace
+[INFO] [2026-07-29 11:48:41] Imports (15):
+[INFO] [2026-07-29 11:48:41]   _CCRandomGenerateBytes
+[INFO] [2026-07-29 11:48:41]   __NSGetArgc
+[INFO] [2026-07-29 11:48:41]   __NSGetArgv
+[INFO] [2026-07-29 11:48:41]   __Unwind_Backtrace
+[INFO] [2026-07-29 11:48:41]   __Unwind_DeleteException
+[INFO] [2026-07-29 11:48:41]   __Unwind_GetDataRelBase
+[INFO] [2026-07-29 11:48:41]   __Unwind_GetIP
+[INFO] [2026-07-29 11:48:41]   __Unwind_GetIPInfo
+[INFO] [2026-07-29 11:48:41]   __Unwind_GetLanguageSpecificData
+[INFO] [2026-07-29 11:48:41]   __Unwind_GetRegionStart
+[INFO] [2026-07-29 11:48:41]   __Unwind_GetTextRelBase
+[INFO] [2026-07-29 11:48:41]   __Unwind_RaiseException
+[INFO] [2026-07-29 11:48:41]   __Unwind_Resume
+[INFO] [2026-07-29 11:48:41]   __Unwind_SetGR
+[INFO] [2026-07-29 11:48:41]   __Unwind_SetIP
+[SUCCESS] [2026-07-29 11:48:41] Binary analysis complete!
+[SUCCESS] [2026-07-29 11:48:41] Stage 'binary_analysis' completed!
+[INFO] [2026-07-29 11:48:41] 
+========================================
+[INFO] [2026-07-29 11:48:41] Starting: [schema_analysis] Reverse engineer Parquet schema
+[INFO] [2026-07-29 11:48:41] ========================================
+[INFO] [2026-07-29 11:48:41] Analyzing existing Parquet output...
+[INFO] [2026-07-29 11:48:41] Found 9541 Parquet files:
+[INFO] [2026-07-29 11:48:41]   $Proxy10_393296816_chunk0.parquet
+[INFO] [2026-07-29 11:48:41]   $Proxy1_347200960_chunk12.parquet
+[INFO] [2026-07-29 11:48:41]   $Proxy2_369471888_chunk3.parquet
+[INFO] [2026-07-29 11:48:41]   $Proxy3_369479360_chunk14.parquet
+[INFO] [2026-07-29 11:48:41]   $Proxy7_369512720_chunk0.parquet
+[INFO] [2026-07-29 11:48:41]   $Proxy8_369517816_chunk14.parquet
+[INFO] [2026-07-29 11:48:41]   $Proxy9_369523984_chunk7.parquet
+[INFO] [2026-07-29 11:48:41]   Ap_395403808_chunk11.parquet
+[INFO] [2026-07-29 11:48:41]   Ar_395404328_chunk13.parquet
+[INFO] [2026-07-29 11:48:41]   At_395404784_chunk0.parquet
+[INFO] [2026-07-29 11:48:41]   BD_395406936_chunk14.parquet
+[INFO] [2026-07-29 11:48:41]   BH_549005472_chunk6.parquet
+[INFO] [2026-07-29 11:48:41]   Bq_395409912_chunk7.parquet
+[INFO] [2026-07-29 11:48:41]   Bt_549000416_chunk11.parquet
+[INFO] [2026-07-29 11:48:41]   Cp_395523544_chunk5.parquet
+[INFO] [2026-07-29 11:48:41]   Cq_395515208_chunk9.parquet
+[INFO] [2026-07-29 11:48:41]   Cs_395414776_chunk11.parquet
+[INFO] [2026-07-29 11:48:41]   Cy_395415904_chunk13.parquet
+[INFO] [2026-07-29 11:48:41]   DA_549005128_chunk8.parquet
+[INFO] [2026-07-29 11:48:41]   Ex_395428536_chunk4.parquet
+[INFO] [2026-07-29 11:48:41] Schema of $Proxy10_393296816_chunk0.parquet:
+[INFO] [2026-07-29 11:48:41]   Columns preview: <pyarrow._parquet.ParquetSchema object at 0x119cf6c00>
+required group field_id=-1 arrow_schema {
+  required int64 field_id=-1 obj_id (Int(bitWidth=64, isSigned=false));
+  required int64 field_id=-1 h ...
+[INFO] [2026-07-29 11:48:41]   Row count: 1
+[INFO] [2026-07-29 11:48:41] Default schema written to docs/parquet_schema_spec.md
+[SUCCESS] [2026-07-29 11:48:41] Schema analysis complete!
+[SUCCESS] [2026-07-29 11:48:41] Stage 'schema_analysis' completed!
+[INFO] [2026-07-29 11:48:41] 
+========================================
+[INFO] [2026-07-29 11:48:41] Starting: [parser_write] Write pure Python HPROF parser
+[INFO] [2026-07-29 11:48:41] ========================================
+[INFO] [2026-07-29 11:48:41] Writing HPROF parser module...
+[INFO] [2026-07-29 11:48:41] Parser already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/parser.py. Skipping.
+[SUCCESS] [2026-07-29 11:48:41] Stage 'parser_write' completed!
+[INFO] [2026-07-29 11:48:41] 
+========================================
+[INFO] [2026-07-29 11:48:41] Starting: [writer_write] Write PyArrow/Parquet writer module
+[INFO] [2026-07-29 11:48:41] ========================================
+[INFO] [2026-07-29 11:48:41] Writing Parquet writer module...
+[INFO] [2026-07-29 11:48:41] Writer already exists at /Users/suzhanfeng/demo/btrace_analyzer/src/hprof_to_parquet/writer.py. Skipping.
+[SUCCESS] [2026-07-29 11:48:41] Stage 'writer_write' completed!
+[INFO] [2026-07-29 11:48:41] 
+========================================
+[INFO] [2026-07-29 11:48:41] Starting: [integration_test] Run integration test on sample
+[INFO] [2026-07-29 11:48:41] ========================================
+[INFO] [2026-07-29 11:48:41] Running integration test on sample hprof file...
+[WARN] [2026-07-29 11:48:41] Sample hprof not found at /Users/suzhanfeng/demo/btrace_analyzer/hprof/taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof. Creating synthetic test instead.
+[INFO] [2026-07-29 11:48:42] Synthetic test data created
+[SUCCESS] [2026-07-29 11:48:42] Stage 'integration_test' completed!
+[INFO] [2026-07-29 11:48:42] 
+========================================
+[INFO] [2026-07-29 11:48:42] Starting: [validation] Compare results with original output
+[INFO] [2026-07-29 11:48:42] ========================================
+[INFO] [2026-07-29 11:48:42] Validating output against reference...
+[INFO] [2026-07-29 11:48:42] Reference output: 9541 Parquet files
+[INFO] [2026-07-29 11:48:42] Python converter: 2 Parquet files
+[INFO] [2026-07-29 11:48:42] Object count comparison: Reference=3267296, Python=100
+[INFO] [2026-07-29 11:48:42] Top classes from reference:
+[INFO] [2026-07-29 11:48:42]   com.getui.gtc.extension.distribution.gws.k.g$a: 1
+[INFO] [2026-07-29 11:48:42]   androidx.core.view.ViewConfigurationCompat: 1
+[INFO] [2026-07-29 11:48:42]   android.content.IRestrictionsManager$Stub: 1
+[INFO] [2026-07-29 11:48:42]   com.facebook.drawee.drawable.VisibilityCallback: 1
+[INFO] [2026-07-29 11:48:42]   android.text.TextWatcher[]: 1
+[INFO] [2026-07-29 11:48:42] Validation report written to /Users/suzhanfeng/demo/btrace_analyzer/test/validation_report.md
+[SUCCESS] [2026-07-29 11:48:42] Validation complete!
+[SUCCESS] [2026-07-29 11:48:42] Stage 'validation' completed!
+[INFO] [2026-07-29 11:48:42] 
+========================================
+[INFO] [2026-07-29 11:48:42] Starting: [docs_update] Update SKILL.md documentation
+[INFO] [2026-07-29 11:48:42] ========================================
+[INFO] [2026-07-29 11:48:42] Updating SKILL.md with Python Direct Mode section...
+[INFO] [2026-07-29 11:48:42] SKILL.md updated successfully!
+[SUCCESS] [2026-07-29 11:48:42] Documentation update complete!
+[SUCCESS] [2026-07-29 11:48:42] Stage 'docs_update' completed!
+[INFO] [2026-07-29 11:48:42] 
+============================================================
+[INFO] [2026-07-29 11:48:42] ALL PHASES COMPLETED SUCCESSFULLY!
+[INFO] [2026-07-29 11:48:42] ============================================================
+[INFO] [2026-07-29 11:48:42] 
+Next steps:
+[INFO] [2026-07-29 11:48:42] 1. Check test/validation_report.md for validation summary
+[INFO] [2026-07-29 11:48:42] 2. Run tests: python -m pytest test/test_hprof_parser.py
+[INFO] [2026-07-29 11:48:42] 3. Update SKILL.md as needed
