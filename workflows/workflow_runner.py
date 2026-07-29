@@ -290,8 +290,8 @@ class WorkflowRunner:
             import sys
             sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-            from hprof_to_parquet.parser import HPROFParser
-            from hprof_to_parquet.writer import convert_hprof_to_parquet
+            from skills.hprof_analyzer.lib.parser import HPROFParser
+            from skills.hprof_analyzer.lib.writer import convert_hprof_to_parquet
 
             parser = HPROFParser(str(HPROF_FILE))
             data = parser.parse_all()
@@ -463,8 +463,8 @@ pip install pyarrow fastparquet duckdb
 ### 使用示例
 
 ```python
-from hprof_to_parquet.parser import HPROFParser
-from hprof_to_parquet.writer import convert_hprof_to_parquet
+from skills.hprof_analyzer.lib.parser import HPROFParser
+from skills.hprof_analyzer.lib.writer import convert_hprof_to_parquet
 
 parser = HPROFParser("your-file.hprof")
 data = parser.parse_all()

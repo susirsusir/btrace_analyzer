@@ -33,7 +33,9 @@
       "Bash(tee /tmp/workflow_full_output.log)",
       "Bash(tee /tmp/workflow_final.log)",
       "Bash(python3 workflows/workflow_runner.py --force)",
-      "Bash(tee /tmp/full_workflow.log)"
+      "Bash(tee /tmp/full_workflow.log)",
+      "Bash(chmod +x skills/hprof-analyzer/tools/convert_to_parquet.py)",
+      "Bash(EOF)"
     ]
   },
   "language": "chinese"
