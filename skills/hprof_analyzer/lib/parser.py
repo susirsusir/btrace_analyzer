@@ -455,7 +455,12 @@ class HPROFParser:
                 b5 = payload[p+5]
                 b6 = payload[p+6]
                 counter = payload[p+7]
-                pad = struct.unpack_from('<H', payload, p+8)[0]
+
+                # Safely read pad only if there's enough data
+                if p + 10 < len(payload):
+                    pad = struct.unpack_from('<H', payload, p+8)[0]
+                else:
+                    pad = 0
 
                 if b4 == 0x0A and b5 == 0x7F and pad == 0x0040:
                     if thread_obj_id > 0:

@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 from typing import Dict, List, Optional
 import os
 from datetime import datetime
+from collections import defaultdict  # <-- Missing import fixed
 
 
 class ParquetWriter:
@@ -210,7 +211,7 @@ def convert_hprof_to_parquet(
     writer = ParquetWriter(output_dir, shard_size)
 
     # Write tables
-    writer.write_objects(parser.objects, class_name_map)
+    writer.write_objects(parser.object_list, class_name_map)
     writer.write_class_hierarchy(parser.class_map)
     writer.write_gc_roots(parser.gc_roots)
     writer.write_threads(parser.threads)
@@ -219,7 +220,7 @@ def convert_hprof_to_parquet(
 
     # Count records
     counts = {
-        'objects': len(parser.objects),
+        'objects': len(parser.object_list),
         'classes': len(parser.class_map),
         'gc_roots': len(parser.gc_roots),
         'threads': len(parser.threads),
