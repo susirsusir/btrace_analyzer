@@ -301,6 +301,28 @@ class HPROFParser:
 
         return count
 
+    def build_class_name_map(self) -> Dict[int, str]:
+        """Build class_serial to class_name mapping using serial << 14.
+        
+        In this hprof-libs format, class_serial from CLASS_DUMP/OBJECT_DUMP
+        can be mapped to class names by shifting left 14 bits to get the
+        corresponding string_id in STRING_DUMP chunks.
+        """
+        class_name_map = {}
+        for serial in self.class_map.keys():
+            # Try serial << 14 first
+            sid = serial << 14
+            if sid in self.strings:
+                class_name_map[serial] = self.strings[sid]
+            else:
+                # Fallback to serial << 13
+                sid = serial << 13
+                if sid in self.strings:
+                    class_name_map[serial] = self.strings[sid]
+                else:
+                    class_name_map[serial] = f'class_{serial}'
+        return class_name_map
+
     def parse_all(self) -> Dict[str, Any]:
         """Parse all chunk types and return aggregated data."""
         self.scan_chunks()
@@ -312,6 +334,9 @@ class HPROFParser:
         thread_count = self.parse_threads()
         frame_count = self.parse_frames()
 
+        # Build class name map
+        class_name_map = self.build_class_name_map()
+
         return {
             'strings': self.strings,
             'classes': self.class_map,
@@ -319,6 +344,7 @@ class HPROFParser:
             'gc_roots': self.gc_roots,
             'threads': self.threads,
             'frames': self.frames,
+            'class_name_map': class_name_map,
             'stats': {
                 'chunks': len(self.chunks),
                 'strings': string_count,
@@ -349,3 +375,16 @@ if __name__ == '__main__':
     print(f"  GC Roots: {stats['gc_roots']:,}")
     print(f"  Threads: {stats['threads']:,}")
     print(f"  Frames: {stats['frames']:,}")
+
+
+"""
+注意：class_serial 到 class_name 的映射在当前 hprof-libs 文件中未能正确解析。
+原因：
+1. class_serial 范围是 1-255，而 string_id 范围是 16384-4294967295，两者无重叠
+2. CLASS_PREORDER (0x0015) 和 CLASS_BACKREF (0x0016) 可能包含类名映射，但格式未明确
+3. 需要进一步逆向或使用 HeapDumpStarDiver 的 Robo Mode 获取完整映射
+
+建议：
+- 使用 Parquet 路径报告时，类名将显示为 class_X 格式
+- 如需完整类名，建议使用 HeapDumpStarDiver 工具转换
+"""
