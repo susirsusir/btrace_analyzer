@@ -1,8 +1,7 @@
 """hprof-analyzer skill — Android HPROF heap dump analysis tool.
 
-This skill provides two parallel analysis paths for hprof files:
-- Path A: Parquet/DuckDB (structured data from HeapDumpStarDiver)
-- Path B: Binary direct parsing (pure Python hprof-libs parser)
+Converts HPROF files to Parquet and performs DuckDB-based memory analysis
+to detect leaks, analyze object distribution, and generate comprehensive reports.
 
 Main entry point: analyze_hprof() in the analyzer module.
 """

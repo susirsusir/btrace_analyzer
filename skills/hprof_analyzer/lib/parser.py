@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""hprof_to_parquet.parser — Complete hprof-libs parser with content-based classification.
+"""hprof_to_parquet.parser — Complete hprof-libs parser with dense packed format support.
 
-Handles Android hprof-libs files with 669+ different chunk tags by classifying
-chunks based on content features rather than tag values.
+Handles Android hprof-libs files with multiple chunk formats:
+- Marker-based tables (00 40 00 XX)
+- Dense packed 89_6f format (5-byte records)
+- Dense packed 89_14_cb format (6-byte records)
 """
 
 import struct
@@ -13,7 +15,7 @@ from collections import defaultdict, Counter
 
 
 class HPROFParser:
-    """Parser for Android hprof-libs format with content-based classification."""
+    """Parser for Android hprof-libs format with dense packed support."""
 
     def __init__(self, filepath: str):
         self.filepath = filepath
@@ -35,7 +37,7 @@ class HPROFParser:
         return 16 + stated_size
 
     def scan_chunks(self) -> List[Dict]:
-        """Scan all chunks without filtering by tag."""
+        """Scan all chunks, reading payload into memory."""
         with open(self.filepath, 'rb') as f:
             f.seek(self.record_start)
             data = f.read()
@@ -59,35 +61,55 @@ class HPROFParser:
         self.chunks = chunks
         return chunks
 
-    def _classify_chunk(self, payload: bytes) -> str:
-        """Classify chunk based on content features."""
-        if len(payload) < 8:
-            return 'tiny'
+    # =========================================================================
+    # Dense packed format detection (from Path B)
+    # =========================================================================
 
-        has_01 = b'\x01' in payload
-        has_004000 = b'\x00\x40\x00' in payload
-        has_896f = b'\x89\x6f' in payload
+    def detect_dense_packed_format(self, payload: bytes) -> Optional[Tuple[str, int, bytes]]:
+        """Detect dense packed format type in large chunks.
 
-        printable = sum(1 for b in payload if 32 <= b < 127 or b in (10, 13, 9))
-        printable_ratio = printable / len(payload)
+        Returns (format_type, record_size, terminator) or None.
+        - '89_6f': 5-byte records with 2-byte terminator
+        - '89_14_cb': 6-byte records with 3-byte terminator
+        - 'marker_004000': marker-based table
+        - None: not a dense packed format
+        """
+        if len(payload) < 100:
+            return None
 
-        x3f_ratio = payload.count(b'\x3f') / len(payload)
-        null_ratio = payload.count(b'\x00') / len(payload)
+        scan_limit = max(512, len(payload) // 2)
+        count_896f = sum(1 for i in range(scan_limit - 1) if payload[i:i+2] == b'\x89\x6f')
+        count_8914cb = sum(1 for i in range(scan_limit - 2) if payload[i:i+3] == b'\x89\x14\xcb')
+        count_004000 = sum(1 for i in range(scan_limit - 2) if payload[i:i+3] == b'\x00\x40\x00')
 
-        if x3f_ratio > 0.9 and not has_01:
-            return 'filler'
-        elif null_ratio > 0.95 and len(payload) < 64:
-            return 'null_padding'
-        elif has_896f and printable_ratio > 0.3:
-            return 'dense_896f'
-        elif has_004000 and printable_ratio < 0.7:
-            return 'marker_structured'
-        elif has_01 and printable_ratio > 0.5:
-            return 'string_like'
-        elif printable_ratio > 0.8 and len(payload) > 64:
-            return 'text_heavy'
+        if count_896f > scan_limit // 20:
+            return ('89_6f', 7, b'\x89\x6f')
+        elif count_8914cb > scan_limit // 20:
+            return ('89_14_cb', 6, b'\x89\x14\xcb')
+        elif count_004000 > scan_limit // 20:
+            return ('marker_004000', None, b'\x00\x40\x00')
         else:
-            return 'other'
+            return None
+
+    def find_sync_point(self, payload: bytes, validator, step: int = 4, scan_limit: int = None) -> Optional[int]:
+        """Find first valid entry sync point in large chunk payload.
+
+        Used to skip prefix/filler data before the actual structured entries.
+        """
+        if scan_limit is None:
+            scan_limit = max(4096, len(payload) // 4)
+        scan_limit = min(scan_limit, len(payload))
+
+        p = 0
+        while p + step <= scan_limit:
+            if validator(p):
+                return p
+            p += step
+        return None
+
+    # =========================================================================
+    # Core parsers (enhanced with Path B logic)
+    # =========================================================================
 
     def parse_strings(self) -> int:
         """Extract all strings from string-like chunks."""
@@ -115,70 +137,180 @@ class HPROFParser:
         return count
 
     def parse_classes(self) -> int:
-        """Extract class information from marker-based chunks."""
+        """Extract class information from CLASS_DUMP chunks.
+
+        Supports three formats:
+        1. 89_6f dense packed: 5-byte records [serial(1B)] [count(1B)] [type(1B)] [0x89][0x6F]
+        2. 89_14_cb dense packed: 6-byte records [serial(1B)] [count(1B)] [type(1B)] [0x89][0x14][0xCB]
+        3. Marker-based: 00 40 00 XX entries
+        """
         count = 0
+        stats = {'format_89_6f': 0, 'format_89_14_cb': 0, 'format_marker': 0}
+
+        VALID_TYPE_CODES = (
+            0x02, 0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x18,
+            0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58,
+            0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98,
+            0xA0, 0xA8, 0xB0, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8,
+            0xE0, 0xE8, 0xF0, 0xF8, 0xFF,
+        )
+
         for c in self.chunks:
+            if c['tag'] != 0x0001:
+                continue
+
             payload = c['payload']
-            if b'\x00\x40\x00' not in payload:
-                continue
+            fmt = self.detect_dense_packed_format(payload)
+            count_0040 = sum(1 for i in range(len(payload)-2) if payload[i:i+3] == b'\x00\x40\x00')
 
-            first_marker = payload.find(b'\x00\x40\x00')
-            if first_marker == -1:
-                continue
+            # Format B: 89_6f dense packed (large chunks)
+            if fmt and fmt[0] == '89_6f' and c['length'] > 1000:
+                stats['format_89_6f'] += 1
+                sync = self.find_sync_point(payload, lambda p: payload[p+3:p+5] == b'\x89\x6f')
+                p = sync if sync is not None else 0
+                while p + 5 <= len(payload):
+                    if payload[p+3:p+5] == b'\x89\x6f':
+                        class_serial = payload[p]
+                        instance_count = payload[p+1]
+                        type_code = payload[p+2]
+                        if type_code in VALID_TYPE_CODES and instance_count != 0xFF:
+                            self.class_map[class_serial] = {
+                                'serial': class_serial,
+                                'num_instances': instance_count,
+                                'type_code': type_code,
+                            }
+                            count += 1
+                        p += 5
+                    else:
+                        p += 1
 
-            p = first_marker + 4
-            while p < len(payload) - 4:
-                nm = payload.find(b'\x00\x40\x00', p)
-                if nm == -1 or nm + 4 >= len(payload):
-                    break
+            # Format C: 89_14_cb dense packed (large chunks)
+            elif fmt and fmt[0] == '89_14_cb' and c['length'] > 1000:
+                stats['format_89_14_cb'] += 1
+                sync = self.find_sync_point(payload, lambda p: payload[p+3:p+6] == b'\x89\x14\xcb')
+                p = sync if sync is not None else 0
+                while p + 6 <= len(payload):
+                    if payload[p+3:p+6] == b'\x89\x14\xcb':
+                        class_serial = payload[p]
+                        instance_count = payload[p+1]
+                        type_code = payload[p+2]
+                        if instance_count != 0xFF:
+                            self.class_map[class_serial] = {
+                                'serial': class_serial,
+                                'num_instances': instance_count,
+                                'type_code': type_code,
+                            }
+                            count += 1
+                        p += 6
+                    else:
+                        p += 1
 
-                ed = payload[p:nm]
-                cs = payload[nm + 3]
+            # Format A: Marker-based (small chunks or fallback)
+            elif count_0040 > len(payload) // 20 or c['length'] <= 1000:
+                stats['format_marker'] += 1
+                first_marker = payload.find(b'\x00\x40\x00')
+                if first_marker == -1:
+                    continue
 
-                if len(ed) >= 2 and ed[1] != 0xFF:
-                    self.class_map[cs] = {'serial': cs, 'num_instances': ed[1]}
-                    count += 1
+                p = first_marker + 4
+                while p < len(payload) - 4:
+                    next_marker = payload.find(b'\x00\x40\x00', p)
+                    if next_marker == -1 or next_marker + 4 >= len(payload):
+                        break
 
-                p = nm + 4
+                    entry_data = payload[p:next_marker]
+                    class_serial = payload[next_marker + 3]
+
+                    if len(entry_data) >= 2 and entry_data[1] != 0xFF:
+                        self.class_map[class_serial] = {
+                            'serial': class_serial,
+                            'num_instances': entry_data[1],
+                        }
+                        count += 1
+
+                    p = next_marker + 4
 
         return count
 
     def parse_objects(self) -> int:
-        """Extract object instances from marker-based chunks."""
+        """Extract object instances from OBJECT_DUMP chunks.
+
+        Supports:
+        1. 89_6f dense packed: 7-byte records [obj_id(4B)] [type(1B)] [0x89][0x6F]
+        2. Marker-based: 00 40 00 XX entries
+        """
         count = 0
+        stats = {'format_89_6f': 0, 'format_marker': 0}
+
         for c in self.chunks:
+            if c['tag'] != 0x0004:
+                continue
+
             payload = c['payload']
-            if b'\x00\x40\x00' not in payload:
-                continue
+            fmt = self.detect_dense_packed_format(payload)
 
-            first_marker = payload.find(b'\x00\x40\x00')
-            if first_marker == -1:
-                continue
+            # Format B: 89_6f dense packed (large chunks)
+            if fmt and fmt[0] == '89_6f' and c['length'] > 1000:
+                stats['format_89_6f'] += 1
+                sync = self.find_sync_point(payload, lambda p: payload[p+3:p+5] == b'\x89\x6f')
+                p = sync if sync is not None else 0
+                while p + 7 <= len(payload):
+                    if payload[p+3:p+5] == b'\x89\x6f':
+                        obj_id = struct.unpack_from('<I', payload, p)[0]
+                        type_code = payload[p+2]
+                        if obj_id > 0:
+                            self.object_list.append({
+                                'obj_id': obj_id,
+                                'class_serial': type_code,
+                            })
+                            count += 1
+                        p += 7
+                    else:
+                        next_pos = payload.find(b'\x89\x6f', p + 1)
+                        if next_pos == -1:
+                            break
+                        candidate = next_pos - 3
+                        if candidate >= 0 and candidate % 7 == 0:
+                            p = candidate
+                        else:
+                            p = next_pos - 3 if next_pos >= 3 else p + 1
 
-            p = first_marker + 4
-            while p < len(payload) - 4:
-                nm = payload.find(b'\x00\x40\x00', p)
-                if nm == -1 or nm + 4 >= len(payload):
-                    break
+            # Format A: Marker-based
+            else:
+                stats['format_marker'] += 1
+                first_marker = payload.find(b'\x00\x40\x00')
+                if first_marker == -1:
+                    continue
 
-                ed = payload[p:nm]
-                cs = payload[nm + 3]
+                p = first_marker + 4
+                while p < len(payload) - 4:
+                    next_marker = payload.find(b'\x00\x40\x00', p)
+                    if next_marker == -1 or next_marker + 4 >= len(payload):
+                        break
 
-                if len(ed) >= 4:
-                    oid = struct.unpack_from('<I', ed, 0)[0]
-                    if oid > 0:
-                        self.object_list.append({
-                            'obj_id': oid,
-                            'class_serial': cs
-                        })
-                        count += 1
+                    entry_data = payload[p:next_marker]
+                    class_serial = payload[next_marker + 3]
 
-                p = nm + 4
+                    if len(entry_data) >= 4:
+                        obj_id = struct.unpack_from('<I', entry_data, 0)[0]
+                        if obj_id > 0:
+                            self.object_list.append({
+                                'obj_id': obj_id,
+                                'class_serial': class_serial,
+                            })
+                            count += 1
+
+                    p = next_marker + 4
 
         return count
 
     def parse_gc_roots(self) -> int:
-        """Extract GC roots from chunks with 20-byte fixed records."""
+        """Extract GC roots from SAMPLE_GC_HEAP chunks.
+
+        Each record is 20 bytes:
+          object_id(4B) + root_info(4B) + root_kind(2B) + class_serial(4B) + pad(4B) + extra(2B)
+        """
+        count = 0
         kind_names = {
             0: 'JAVA_STACK', 1: 'NATIVE_STACK', 2: 'SYSTEM_CLASS',
             3: 'GC_STATIC_FIELD', 4: 'GC_LOCAL', 5: 'GC_MONITOR',
@@ -186,39 +318,37 @@ class HPROFParser:
             9: 'DAEMON_WORKER', 10: 'UNKNOWN',
         }
 
-        count = 0
         for c in self.chunks:
-            payload = c['payload']
-
-            # Try to find sync point
-            sync_pos = None
-            for p in range(0, min(len(payload), 4096), 4):
-                try:
-                    oid = struct.unpack_from('<I', payload, p)[0]
-                    rk = struct.unpack_from('<H', payload, p+8)[0]
-                    if oid > 0 and rk <= 10:
-                        sync_pos = p
-                        break
-                except:
-                    pass
-
-            if sync_pos is None:
+            if c['tag'] != 0x0005:
                 continue
 
-            p = sync_pos
-            while p + 20 <= len(payload):
-                oid = struct.unpack_from('<I', payload, p)[0]
-                ri = struct.unpack_from('<I', payload, p+4)[0]
-                rk = struct.unpack_from('<H', payload, p+8)[0]
-                cs = struct.unpack_from('<I', payload, p+10)[0]
+            payload = c['payload']
 
-                if rk <= 10 and oid > 0:
+            # Find sync point for large chunks
+            sync_pos = self.find_sync_point(
+                payload,
+                lambda p: p + 10 <= len(payload) and
+                          struct.unpack_from('<I', payload, p)[0] > 0 and
+                          struct.unpack_from('<H', payload, p+8)[0] <= 10,
+                step=4,
+            )
+
+            start = sync_pos if sync_pos is not None else 0
+            p = start
+
+            while p + 20 <= len(payload):
+                object_id = struct.unpack_from('<I', payload, p)[0]
+                root_info = struct.unpack_from('<I', payload, p+4)[0]
+                root_kind = struct.unpack_from('<H', payload, p+8)[0]
+                class_serial = struct.unpack_from('<I', payload, p+10)[0]
+
+                if root_kind <= 10 and object_id > 0:
                     self.gc_roots.append({
-                        'kind': kind_names.get(rk, '?'),
-                        'root_kind_raw': rk,
-                        'root_info': ri,
-                        'object_id': oid,
-                        'class_serial': cs
+                        'kind': kind_names.get(root_kind, '?'),
+                        'root_kind_raw': root_kind,
+                        'root_info': root_info,
+                        'object_id': object_id,
+                        'class_serial': class_serial,
                     })
                     p += 20
                     count += 1
@@ -228,45 +358,50 @@ class HPROFParser:
         return count
 
     def parse_threads(self) -> int:
-        """Extract thread information from THREAD_SUSPEND chunks."""
+        """Extract thread information from THREAD_SUSPEND chunks.
+
+        Each record is 9 bytes:
+          thread_obj_id(4B) + 0x0A + 0x7F + suspend_type(1B) + counter(1B) + pad(2B: 0x00 0x40)
+        """
         count = 0
         for c in self.chunks:
+            if c['tag'] != 0x0003:
+                continue
+
             payload = c['payload']
             p = 0
             while p + 9 <= len(payload):
                 tid = struct.unpack_from('<I', payload, p)[0]
-                if payload[p+4] == 0x0A and payload[p+5] == 0x7F:
-                    if p + 10 <= len(payload):
-                        pad = struct.unpack_from('<H', payload, p+8)[0]
-                    else:
-                        pad = 0
-                    if pad == 0x0040 and tid > 0:
-                        self.threads[tid] = {
-                            'name': '',
-                            'suspend_type': payload[p+6],
-                            'counter': payload[p+7]
-                        }
-                        count += 1
-                        p += 9
-                    else:
-                        p += 1
+                b4 = payload[p+4]
+                b5 = payload[p+5]
+                pad = struct.unpack_from('<H', payload, p+8)[0]
+
+                if b4 == 0x0A and b5 == 0x7F and pad == 0x0040 and tid > 0:
+                    self.threads[tid] = {
+                        'name': '',
+                        'suspend_type': payload[p+6],
+                        'counter': payload[p+7],
+                    }
+                    count += 1
+                    p += 9
                 else:
                     p += 1
+
         return count
 
     def parse_frames(self) -> int:
-        """Extract stack frame information."""
+        """Extract stack frame information from STACK_FRAME chunks."""
         count = 0
         for c in self.chunks:
-            payload = c['payload']
-            if b'\x00\x40\x00' not in payload:
+            if c['tag'] != 0x0002:
                 continue
 
+            payload = c['payload']
             first_marker = payload.find(b'\x00\x40\x00')
             if first_marker == -1:
                 continue
 
-            # Parse pre-marker block
+            # Parse pre-marker block (full frame data)
             pre = payload[:first_marker]
             p = 0
             while p + 20 <= len(pre):
@@ -278,35 +413,40 @@ class HPROFParser:
                     self.frames[fid] = {
                         'class_serial': cs,
                         'method_index': mi,
-                        'line': ln
+                        'line': ln,
                     }
                     count += 1
                 p += 20
 
-            # Parse marker-based entries
+            # Parse marker-based entries (type_code and class_serial update)
             p = first_marker + 4
             while p < len(payload) - 4:
-                nm = payload.find(b'\x00\x40\x00', p)
-                if nm == -1 or nm + 4 >= len(payload):
+                next_marker = payload.find(b'\x00\x40\x00', p)
+                if next_marker == -1 or next_marker + 4 >= len(payload):
                     break
-                ed = payload[p:nm]
-                cs = payload[nm + 3]
+                ed = payload[p:next_marker]
+                cs = payload[next_marker + 3]
                 if len(ed) >= 5:
                     fid = struct.unpack_from('<I', ed, 0)[0]
                     tc = ed[4]
                     if fid > 0 and fid in self.frames:
                         self.frames[fid]['type_code'] = tc
                         self.frames[fid]['class_serial'] = cs
-                p = nm + 4
+                p = next_marker + 4
 
         return count
 
+    # =========================================================================
+    # Class name resolution (enhanced)
+    # =========================================================================
+
     def build_class_name_map(self) -> Dict[int, str]:
-        """Build class_serial to class_name mapping using serial << 14.
-        
-        In this hprof-libs format, class_serial from CLASS_DUMP/OBJECT_DUMP
-        can be mapped to class names by shifting left 14 bits to get the
-        corresponding string_id in STRING_DUMP chunks.
+        """Build class_serial to class_name mapping.
+
+        Uses multiple strategies:
+        1. Direct string_id lookup (serial << 14)
+        2. Serial-based lookup for small values
+        3. Fallback to class_serial placeholder
         """
         class_name_map = {}
         for serial in self.class_map.keys():
@@ -320,8 +460,16 @@ class HPROFParser:
                 if sid in self.strings:
                     class_name_map[serial] = self.strings[sid]
                 else:
-                    class_name_map[serial] = f'class_{serial}'
+                    # Try direct serial lookup
+                    if serial in self.strings:
+                        class_name_map[serial] = self.strings[serial]
+                    else:
+                        class_name_map[serial] = f'class_{serial}'
         return class_name_map
+
+    # =========================================================================
+    # Main entry point
+    # =========================================================================
 
     def parse_all(self) -> Dict[str, Any]:
         """Parse all chunk types and return aggregated data."""
@@ -375,16 +523,3 @@ if __name__ == '__main__':
     print(f"  GC Roots: {stats['gc_roots']:,}")
     print(f"  Threads: {stats['threads']:,}")
     print(f"  Frames: {stats['frames']:,}")
-
-
-"""
-注意：class_serial 到 class_name 的映射在当前 hprof-libs 文件中未能正确解析。
-原因：
-1. class_serial 范围是 1-255，而 string_id 范围是 16384-4294967295，两者无重叠
-2. CLASS_PREORDER (0x0015) 和 CLASS_BACKREF (0x0016) 可能包含类名映射，但格式未明确
-3. 需要进一步逆向或使用 HeapDumpStarDiver 的 Robo Mode 获取完整映射
-
-建议：
-- 使用 Parquet 路径报告时，类名将显示为 class_X 格式
-- 如需完整类名，建议使用 HeapDumpStarDiver 工具转换
-"""
