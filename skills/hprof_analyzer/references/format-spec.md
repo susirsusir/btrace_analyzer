@@ -3,7 +3,7 @@
 本文档描述了现代 Android 设备使用的 Android hprof-libs 格式（Android 7.0+）。
 
 > **来源**：从 `taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof`（159 MB，Android 7.0+ hprof-libs）逆向工程得出。
-> 已针对 HeapDumpStarDiver + DuckDB 输出和 Eclipse MAT 参考中的已知良好数据进行验证。
+> 格式规范通过 Python 解析器验证，并与 Eclipse MAT 参考数据交叉比对。
 
 ## 文件结构
 
