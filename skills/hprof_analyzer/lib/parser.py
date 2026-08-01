@@ -66,14 +66,7 @@ class HPROFParser:
     # =========================================================================
 
     def detect_dense_packed_format(self, payload: bytes) -> Optional[Tuple[str, int, bytes]]:
-        """Detect dense packed format type in large chunks.
-
-        Returns (format_type, record_size, terminator) or None.
-        - '89_6f': 5-byte records with 2-byte terminator
-        - '89_14_cb': 6-byte records with 3-byte terminator
-        - 'marker_004000': marker-based table
-        - None: not a dense packed format
-        """
+        """Detect dense packed format type in large chunks."""
         if len(payload) < 100:
             return None
 
@@ -92,10 +85,7 @@ class HPROFParser:
             return None
 
     def find_sync_point(self, payload: bytes, validator, step: int = 4, scan_limit: int = None) -> Optional[int]:
-        """Find first valid entry sync point in large chunk payload.
-
-        Used to skip prefix/filler data before the actual structured entries.
-        """
+        """Find first valid entry sync point in large chunk payload."""
         if scan_limit is None:
             scan_limit = max(4096, len(payload) // 4)
         scan_limit = min(scan_limit, len(payload))
@@ -106,6 +96,50 @@ class HPROFParser:
                 return p
             p += step
         return None
+
+    # =========================================================================
+    # Helper: Parse marker-based entries
+    # =========================================================================
+
+    def _parse_marker_based_entries(self, payload: bytes) -> List[Dict]:
+        """Parse marker-based entries from payload.
+
+        Returns list of {obj_id, class_serial, type_code} dicts.
+        Entry data is located AFTER each marker (00 40 00).
+        """
+        entries = []
+        markers = []
+        p = 0
+        while True:
+            pos = payload.find(b'\x00\x40\x00', p)
+            if pos == -1:
+                break
+            markers.append(pos)
+            p = pos + 1
+
+        for i, marker_pos in enumerate(markers):
+            entry_start = marker_pos + 4
+            entry_end = markers[i+1] if i+1 < len(markers) else len(payload)
+            entry_data = payload[entry_start:entry_end]
+
+            # Safety check
+            if marker_pos + 3 >= len(payload):
+                continue
+
+            class_serial = payload[marker_pos + 3]
+
+            if len(entry_data) >= 5:
+                obj_id = struct.unpack_from('<I', entry_data, 0)[0]
+                type_code = entry_data[4]
+
+                if obj_id > 0 and obj_id < 0x10000000:  # Filter invalid IDs
+                    entries.append({
+                        'obj_id': obj_id,
+                        'class_serial': class_serial,
+                        'type_code': type_code,
+                    })
+
+        return entries
 
     # =========================================================================
     # Core parsers (enhanced with Path B logic)
@@ -233,15 +267,16 @@ class HPROFParser:
         return count
 
     def parse_objects(self) -> int:
-        """Extract object instances from OBJECT_DUMP chunks.
+        """Extract object instances from OBJECT_DUMP and marker-based chunks.
 
         Supports:
-        1. 89_6f dense packed: 7-byte records [obj_id(4B)] [type(1B)] [0x89][0x6F]
-        2. Marker-based: 00 40 00 XX entries
+        1. OBJECT_DUMP (0x0004) with 89_6f or marker-based format
+        2. Unknown marker-based tags: 0x6F00, 0x1500, 0xE56F, 0x1400, 0x0100, 0x000A, etc.
         """
         count = 0
-        stats = {'format_89_6f': 0, 'format_marker': 0}
+        stats = {'format_89_6f': 0, 'format_marker': 0, 'unknown_tags': 0}
 
+        # 1. Parse OBJECT_DUMP (0x0004) chunks
         for c in self.chunks:
             if c['tag'] != 0x0004:
                 continue
@@ -278,29 +313,29 @@ class HPROFParser:
             # Format A: Marker-based
             else:
                 stats['format_marker'] += 1
-                first_marker = payload.find(b'\x00\x40\x00')
-                if first_marker == -1:
-                    continue
+                entries = self._parse_marker_based_entries(payload)
+                for entry in entries:
+                    self.object_list.append({
+                        'obj_id': entry['obj_id'],
+                        'class_serial': entry['class_serial'],
+                    })
+                    count += 1
 
-                p = first_marker + 4
-                while p < len(payload) - 4:
-                    next_marker = payload.find(b'\x00\x40\x00', p)
-                    if next_marker == -1 or next_marker + 4 >= len(payload):
-                        break
+        # 2. Parse unknown marker-based tags
+        marker_tags = [0x6F00, 0x1500, 0xE56F, 0x1400, 0x0100, 0x000A, 0x1521, 0x7002, 0x2300, 0xFFFF]
 
-                    entry_data = payload[p:next_marker]
-                    class_serial = payload[next_marker + 3]
+        for tag in marker_tags:
+            tag_chunks = [c for c in self.chunks if c['tag'] == tag]
 
-                    if len(entry_data) >= 4:
-                        obj_id = struct.unpack_from('<I', entry_data, 0)[0]
-                        if obj_id > 0:
-                            self.object_list.append({
-                                'obj_id': obj_id,
-                                'class_serial': class_serial,
-                            })
-                            count += 1
-
-                    p = next_marker + 4
+            for c in tag_chunks:
+                entries = self._parse_marker_based_entries(c['payload'])
+                for entry in entries:
+                    self.object_list.append({
+                        'obj_id': entry['obj_id'],
+                        'class_serial': entry['class_serial'],
+                    })
+                    count += 1
+                stats['unknown_tags'] += len(entries)
 
         return count
 
@@ -358,11 +393,7 @@ class HPROFParser:
         return count
 
     def parse_threads(self) -> int:
-        """Extract thread information from THREAD_SUSPEND chunks.
-
-        Each record is 9 bytes:
-          thread_obj_id(4B) + 0x0A + 0x7F + suspend_type(1B) + counter(1B) + pad(2B: 0x00 0x40)
-        """
+        """Extract thread information from THREAD_SUSPEND chunks."""
         count = 0
         for c in self.chunks:
             if c['tag'] != 0x0003:
@@ -421,20 +452,12 @@ class HPROFParser:
                 p += 20
 
             # Parse marker-based entries (type_code and class_serial update)
-            p = first_marker + 4
-            while p < len(payload) - 4:
-                next_marker = payload.find(b'\x00\x40\x00', p)
-                if next_marker == -1 or next_marker + 4 >= len(payload):
-                    break
-                ed = payload[p:next_marker]
-                cs = payload[next_marker + 3]
-                if len(ed) >= 5:
-                    fid = struct.unpack_from('<I', ed, 0)[0]
-                    tc = ed[4]
-                    if fid > 0 and fid in self.frames:
-                        self.frames[fid]['type_code'] = tc
-                        self.frames[fid]['class_serial'] = cs
-                p = next_marker + 4
+            entries = self._parse_marker_based_entries(payload)
+            for entry in entries:
+                fid = entry['obj_id']
+                if fid > 0 and fid in self.frames:
+                    self.frames[fid]['type_code'] = entry['type_code']
+                    self.frames[fid]['class_serial'] = entry['class_serial']
 
         return count
 
@@ -454,7 +477,7 @@ class HPROFParser:
 
         # Strategy 1: Parse CHUNK_HEADER chunks for direct mapping
         for c in self.chunks:
-            if c['tag'] != 0x0000 or c['length'] <= 1000:
+            if c['tag'] != 0x0000:
                 continue
 
             payload = c['payload']
