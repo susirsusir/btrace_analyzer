@@ -393,38 +393,91 @@ class HPROFParser:
         return count
 
     def parse_threads(self) -> int:
-        """Extract thread information from THREAD_SUSPEND chunks."""
+        """Extract thread information from THREAD_SUSPEND chunks.
+
+        Supports:
+        1. Small chunks with 0x004000 markers (marker-based format)
+        2. Large chunks with 0x6FE55848 pattern (fixed 20-byte records)
+        """
         count = 0
+
         for c in self.chunks:
             if c['tag'] != 0x0003:
                 continue
 
             payload = c['payload']
-            p = 0
-            while p + 10 <= len(payload):
-                tid = struct.unpack_from('<I', payload, p)[0]
-                b4 = payload[p+4]
-                b5 = payload[p+5]
-                b6 = payload[p+6]
-                b7 = payload[p+7]
-                pad = struct.unpack_from('<H', payload, p+8)[0]
 
-                if b4 == 0x0A and b5 == 0x7F and pad == 0x0040 and tid > 0:
-                    self.threads[tid] = {
-                        'name': '',
-                        'suspend_type': b6,
-                        'counter': b7,
-                    }
-                    count += 1
-                    p += 9
-                else:
-                    p += 1
+            # Strategy 1: Parse 0x004000 marker-based format (small chunks)
+            if b'\x00\x40\x00' in payload:
+                markers = []
+                p = 0
+                while True:
+                    pos = payload.find(b'\x00\x40\x00', p)
+                    if pos == -1:
+                        break
+                    markers.append(pos)
+                    p = pos + 1
+
+                for i, marker_pos in enumerate(markers):
+                    entry_start = marker_pos + 4
+                    entry_end = markers[i+1] if i+1 < len(markers) else len(payload)
+                    entry_data = payload[entry_start:entry_end]
+
+                    if marker_pos + 3 >= len(payload):
+                        continue
+
+                    class_serial = payload[marker_pos + 3]
+
+                    if len(entry_data) >= 4:
+                        tid = struct.unpack_from('<I', entry_data, 0)[0]
+                        if tid > 0 and tid < 0x10000000:
+                            self.threads[tid] = {
+                                'name': '',
+                                'class_serial': class_serial,
+                            }
+                            count += 1
+
+            # Strategy 2: Parse large chunk with 0x6FE55848 pattern
+            elif b'\x6f\xe5\x58\x48' in payload:
+                pattern_positions = []
+                p = 0
+                while True:
+                    pos = payload.find(b'\x6f\xe5\x58\x48', p)
+                    if pos == -1:
+                        break
+                    pattern_positions.append(pos)
+                    p = pos + 1
+
+                # Analyze intervals to find record size
+                if len(pattern_positions) > 1:
+                    intervals = [pattern_positions[i+1] - pattern_positions[i]
+                                 for i in range(min(20, len(pattern_positions)-1))]
+                    from collections import Counter
+                    interval_counts = Counter(intervals)
+                    most_common_interval = interval_counts.most_common(1)[0][0]
+
+                    # Parse records at common interval
+                    for pos in pattern_positions:
+                        if pos >= 4:
+                            tid = struct.unpack_from('<I', payload, pos - 4)[0]
+                            if tid > 0 and tid < 0x10000000:
+                                self.threads[tid] = {
+                                    'name': '',
+                                    'class_serial': 0,
+                                }
+                                count += 1
 
         return count
 
     def parse_frames(self) -> int:
-        """Extract stack frame information from STACK_FRAME chunks."""
+        """Extract stack frame information from STACK_FRAME chunks.
+
+        Supports:
+        1. Pre-marker block with 5-byte records (frame_id + type_code)
+        2. Marker-based entries with type_code and class_serial
+        """
         count = 0
+
         for c in self.chunks:
             if c['tag'] != 0x0002:
                 continue
@@ -434,30 +487,35 @@ class HPROFParser:
             if first_marker == -1:
                 continue
 
-            # Parse pre-marker block (full frame data)
+            # Parse pre-marker block (5-byte records)
             pre = payload[:first_marker]
             p = 0
-            while p + 20 <= len(pre):
+            while p + 5 <= len(pre):
                 fid = struct.unpack_from('<I', pre, p)[0]
-                cs = struct.unpack_from('<I', pre, p+4)[0]
-                mi = struct.unpack_from('<I', pre, p+12)[0]
-                ln = struct.unpack_from('<I', pre, p+16)[0] if p + 20 <= len(pre) else -1
-                if fid > 0:
+                tc = pre[p+4] if p + 5 <= len(pre) else 0
+
+                if fid > 0 and fid < 10000000:
                     self.frames[fid] = {
-                        'class_serial': cs,
-                        'method_index': mi,
-                        'line': ln,
+                        'class_serial': 0,
+                        'method_index': 0,
+                        'line': -1,
+                        'type_code': tc,
                     }
                     count += 1
-                p += 20
+                p += 5
 
-            # Parse marker-based entries (type_code and class_serial update)
+            # Parse marker-based entries
             entries = self._parse_marker_based_entries(payload)
             for entry in entries:
                 fid = entry['obj_id']
-                if fid > 0 and fid in self.frames:
-                    self.frames[fid]['type_code'] = entry['type_code']
-                    self.frames[fid]['class_serial'] = entry['class_serial']
+                if fid > 0 and fid < 10000000:
+                    self.frames[fid] = {
+                        'class_serial': entry['class_serial'],
+                        'method_index': 0,
+                        'line': -1,
+                        'type_code': entry['type_code'],
+                    }
+                    count += 1
 
         return count
 
