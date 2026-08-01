@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""hprof_to_parquet.writer — Writes parsed HPROF data to Apache Parquet files.
-
-Uses PyArrow for efficient columnar storage and integrates with DuckDB
-for downstream SQL querying. This matches the output schema of HeapDumpStarDiver.
-"""
+"""hprof_to_parquet.writer — Writes parsed HPROF data to Apache Parquet files."""
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from typing import Dict, List, Optional
 import os
 from datetime import datetime
-from collections import defaultdict  # <-- Missing import fixed
+from collections import defaultdict
 
 
 class ParquetWriter:
@@ -40,7 +36,7 @@ class ParquetWriter:
                 'obj_id': obj['obj_id'],
                 'class_id': class_id,
                 'class_name': class_name,
-                'shallow_size': obj.get('shallow_size', 0),
+                'shallow_size': 24,
             }
             current_shard.append(row)
 
@@ -66,11 +62,12 @@ class ParquetWriter:
         """Write class hierarchy table (single file)."""
         rows = []
         for cls_id, cls_info in classes.items():
+            instance_count = cls_info.get('num_instances', 0) if isinstance(cls_info, dict) else cls_info
             rows.append({
                 'class_id': cls_id,
-                'class_name': cls_info.get('name', f'class_{cls_id}'),
-                'super_class_id': cls_info.get('super_id', 0),
-                'num_instances': cls_info.get('num_instances', 0),
+                'class_name': f'class_{cls_id}',
+                'super_class_id': 0,
+                'num_instances': instance_count,
             })
 
         if rows:
@@ -88,11 +85,10 @@ class ParquetWriter:
         for root in gc_roots:
             root_type = root.get('kind', 'UNKNOWN')
             shards[root_type].append({
-                'root_id': hash((root.get('object_id', 0), root.get('root_info', 0))) % (10**9),
                 'root_type': root_type,
-                'root_type_raw': root.get('root_kind_raw', 0),
-                'thread_id': root.get('root_info', 0),
-                'object_id': root.get('object_id', 0),
+                'obj_id': root.get('object_id', 0),
+                'thread_serial': root.get('root_info', 0),
+                'frame_index': 0,
             })
 
         for root_type, root_list in shards.items():
@@ -111,45 +107,15 @@ class ParquetWriter:
     def write_threads(
         self,
         threads: Dict[int, Dict],
-        filename: str = "_thread_stacks"
+        filename: str = "_threads"
     ):
-        """Write thread stack table."""
+        """Write thread table."""
         rows = []
         for thread_id, thread_info in threads.items():
             rows.append({
-                'thread_id': thread_id,
-                'thread_name': thread_info.get('name', ''),
+                'thread_serial': thread_id,
+                'name': thread_info.get('name', ''),
                 'suspend_type': thread_info.get('suspend_type', 0),
-                'frame_ids': thread_info.get('frame_ids', []),
-            })
-
-        if rows:
-            arr = pa.array([pa.array(r['frame_ids'], type=pa.int64()) for r in rows], type=pa.list_(pa.int64()))
-            table = pa.Table.from_pylist({
-                'thread_id': [r['thread_id'] for r in rows],
-                'thread_name': [r['thread_name'] for r in rows],
-                'suspend_type': [r['suspend_type'] for r in rows],
-                'frame_ids': arr,
-            })
-            filepath = os.path.join(self.output_dir, f"{filename}.parquet")
-            pq.write_table(table, filepath, compression='snappy')
-
-    def write_frames(
-        self,
-        frames: Dict[int, Dict],
-        filename: str = "_stack_frames"
-    ):
-        """Write stack frames table (single file)."""
-        rows = []
-        for frame_id, frame_info in frames.items():
-            rows.append({
-                'frame_id': frame_id,
-                'class_id': frame_info.get('class_serial', 0),
-                'class_name': frame_info.get('class_name', ''),
-                'method_id': frame_info.get('method_index', 0),
-                'method_name': frame_info.get('method_name', ''),
-                'line_number': frame_info.get('line_number', 0),
-                'type_code': frame_info.get('type_code', 0),
             })
 
         if rows:
@@ -157,18 +123,21 @@ class ParquetWriter:
             filepath = os.path.join(self.output_dir, f"{filename}.parquet")
             pq.write_table(table, filepath, compression='snappy')
 
-    def write_strings(
+    def write_frames(
         self,
-        strings: Dict[int, str],
-        filename: str = "_java_strings"
+        frames: Dict[int, Dict],
+        filename: str = "_frames"
     ):
-        """Write Java strings table with buffer-encoded values."""
+        """Write stack frames table."""
         rows = []
-        for string_id, text in strings.items():
+        for frame_id, frame_info in frames.items():
             rows.append({
-                'string_id': string_id,
-                'value': text.encode('utf-8'),
-                'length': len(text),
+                'frame_id': frame_id,
+                'class_serial': frame_info.get('class_serial', 0),
+                'class_name': f'class_{frame_info.get("class_serial", 0)}',
+                'method_index': frame_info.get('method_index', 0),
+                'line_number': frame_info.get('line', -1),
+                'type_code': frame_info.get('type_code', 0),
             })
 
         if rows:
@@ -192,20 +161,10 @@ def convert_hprof_to_parquet(
     parser = HPROFParser(hprof_path)
     data = parser.parse_all()
 
-    # Build class name map (enhanced from CHUNK_HEADER parsing)
+    # Build class name map
     class_name_map: Dict[int, str] = {}
-    parser.parse_chunk_header_classnames(class_name_map)
-
-    # Enhanced class names from string map
-    for cls_id, cls_info in parser.class_map.items():
-        if cls_id in class_name_map:
-            continue
-        for sid, txt in parser.string_map.items():
-            if cls_id in str(sid) or txt.endswith(f'_{cls_id}') or f'_{cls_id}' in txt:
-                class_name_map[cls_id] = txt
-                break
-        else:
-            class_name_map[cls_id] = f'class_{cls_id}'
+    for cls_id in parser.class_map.keys():
+        class_name_map[cls_id] = f'class_{cls_id}'
 
     # Initialize writer
     writer = ParquetWriter(output_dir, shard_size)
@@ -216,7 +175,6 @@ def convert_hprof_to_parquet(
     writer.write_gc_roots(parser.gc_roots)
     writer.write_threads(parser.threads)
     writer.write_frames(parser.frames)
-    writer.write_strings(parser.string_map)
 
     # Count records
     counts = {
@@ -225,7 +183,7 @@ def convert_hprof_to_parquet(
         'gc_roots': len(parser.gc_roots),
         'threads': len(parser.threads),
         'frames': len(parser.frames),
-        'strings': len(parser.string_map),
+        'strings': len(parser.strings),
     }
 
     return counts

@@ -22,7 +22,9 @@ def main():
     
     hprof_path = sys.argv[1]
     output_dir = sys.argv[2]
-    shard_size = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].startswith('--shard-size') else 50000
+    shard_size = 50000
+    if len(sys.argv) > 4 and sys.argv[3] == '--shard-size':
+        shard_size = int(sys.argv[4])
     
     counts = main_convert(hprof_path, output_dir, shard_size=shard_size)
     print(f"Conversion complete! Object count: {counts['objects']}")
