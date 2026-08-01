@@ -322,7 +322,28 @@ class HPROFParser:
                     count += 1
 
         # 2. Parse unknown marker-based tags
-        marker_tags = [0x6F00, 0x1500, 0xE56F, 0x1400, 0x0100, 0x000A, 0x1521, 0x7002, 0x2300, 0xFFFF]
+        # 已知的 marker-based tag
+        known_marker_tags = {0x6F00, 0x1500, 0xE56F, 0x1400, 0x0100, 0x000A, 
+                             0x1521, 0x7002, 0x2300, 0xFFFF, 0x2200, 0x023E, 
+                             0x728D, 0x3F08, 0x0200, 0xEA6F, 0x0C00, 0x1510,
+                             0xFF0A, 0x1470, 0xEF6F, 0x708D, 0x7200, 0x8D3F,
+                             0x2170, 0x4100, 0x8613, 0xDF6F, 0xE070, 0xE07E,
+                             0xE089, 0xE0B2, 0xE76F, 0xE8CF, 0xE96F, 0xEE6F,
+                             0xEF6F, 0xF148, 0xF1D8}
+        
+        # 动态检测其他 marker-based tag
+        marker_tags = list(known_marker_tags)
+        
+        # 扫描所有 chunks，检测包含 0x004000 的未知 tag
+        for c in self.chunks:
+            tag = c['tag']
+            if tag in known_marker_tags or tag in {0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 
+                                                    0x0010, 0x0011, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0019,
+                                                    0x0030, 0x0031, 0x0032, 0x3F3F, 0x3F00, 0x003F, 0x0040}:
+                continue
+            if b'\x00\x40\x00' in c['payload']:
+                if tag not in marker_tags:
+                    marker_tags.append(tag)
 
         for tag in marker_tags:
             tag_chunks = [c for c in self.chunks if c['tag'] == tag]
@@ -528,8 +549,9 @@ class HPROFParser:
 
         Uses multiple strategies in priority order:
         1. CHUNK_HEADER (tag=0x0000) parsing — direct class_serial → class_name mapping
-        2. Serial-based lookup (serial << 14, serial << 13)
-        3. Fallback to class_serial placeholder
+        2. String tags (0x4000, 0x2100, 0x1000) parsing — additional class names
+        3. Serial-based lookup (serial << 14, serial << 13)
+        4. Fallback to class_serial placeholder
         """
         class_name_map = {}
 
@@ -560,7 +582,34 @@ class HPROFParser:
 
                 p = sep + 13
 
-        # Strategy 2: Serial-based heuristic lookup for unmapped classes
+        # Strategy 2: Parse string tags (0x4000, 0x2100, 0x1000) for additional class names
+        string_tags = [0x4000, 0x2100, 0x1000]
+        for tag in string_tags:
+            tag_chunks = [c for c in self.chunks if c['tag'] == tag]
+            for c in tag_chunks:
+                payload = c['payload']
+                p = 0
+                while p < len(payload) - 13:
+                    sep = payload.find(b'\x01', p)
+                    if sep == -1:
+                        break
+
+                    text_bytes = payload[p:sep]
+                    if len(text_bytes) > 0 and all(32 <= b < 127 for b in text_bytes):
+                        meta = payload[sep+1:sep+13]
+                        if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                            class_serial = meta[7]
+                            text = text_bytes.decode('ascii', errors='replace')
+
+                            # Filter class names
+                            if len(text) > 8 and ('.' in text or '/' in text or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')):
+                                if not text.startswith('$SwitchMap') and not text.startswith('$$'):
+                                    if class_serial not in class_name_map:
+                                        class_name_map[class_serial] = text
+
+                    p = sep + 13
+
+        # Strategy 3: Serial-based heuristic lookup for unmapped classes
         for serial in self.class_map.keys():
             if serial in class_name_map:
                 continue
