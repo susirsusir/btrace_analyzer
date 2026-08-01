@@ -370,17 +370,19 @@ class HPROFParser:
 
             payload = c['payload']
             p = 0
-            while p + 9 <= len(payload):
+            while p + 10 <= len(payload):
                 tid = struct.unpack_from('<I', payload, p)[0]
                 b4 = payload[p+4]
                 b5 = payload[p+5]
+                b6 = payload[p+6]
+                b7 = payload[p+7]
                 pad = struct.unpack_from('<H', payload, p+8)[0]
 
                 if b4 == 0x0A and b5 == 0x7F and pad == 0x0040 and tid > 0:
                     self.threads[tid] = {
                         'name': '',
-                        'suspend_type': payload[p+6],
-                        'counter': payload[p+7],
+                        'suspend_type': b6,
+                        'counter': b7,
                     }
                     count += 1
                     p += 9
@@ -443,19 +445,51 @@ class HPROFParser:
     def build_class_name_map(self) -> Dict[int, str]:
         """Build class_serial to class_name mapping.
 
-        Uses multiple strategies:
-        1. Direct string_id lookup (serial << 14)
-        2. Serial-based lookup for small values
+        Uses multiple strategies in priority order:
+        1. CHUNK_HEADER (tag=0x0000) parsing — direct class_serial → class_name mapping
+        2. Serial-based lookup (serial << 14, serial << 13)
         3. Fallback to class_serial placeholder
         """
         class_name_map = {}
+
+        # Strategy 1: Parse CHUNK_HEADER chunks for direct mapping
+        for c in self.chunks:
+            if c['tag'] != 0x0000 or c['length'] <= 1000:
+                continue
+
+            payload = c['payload']
+            p = 0
+            while p < len(payload) - 13:
+                sep = payload.find(b'\x01', p)
+                if sep == -1:
+                    break
+
+                text_bytes = payload[p:sep]
+                if len(text_bytes) > 0 and all(32 <= b < 127 for b in text_bytes):
+                    meta = payload[sep+1:sep+13]
+                    if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                        class_serial = meta[7]
+                        text = text_bytes.decode('ascii', errors='replace')
+
+                        # Only keep actual class names (length > 8, contains class-like patterns)
+                        if len(text) > 8 and ('.' in text or '/' in text or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')):
+                            if not text.startswith('$SwitchMap') and not text.startswith('$$'):
+                                if class_serial not in class_name_map:
+                                    class_name_map[class_serial] = text
+
+                p = sep + 13
+
+        # Strategy 2: Serial-based heuristic lookup for unmapped classes
         for serial in self.class_map.keys():
-            # Try serial << 14 first
+            if serial in class_name_map:
+                continue
+
+            # Try serial << 14
             sid = serial << 14
             if sid in self.strings:
                 class_name_map[serial] = self.strings[sid]
             else:
-                # Fallback to serial << 13
+                # Try serial << 13
                 sid = serial << 13
                 if sid in self.strings:
                     class_name_map[serial] = self.strings[sid]
@@ -465,6 +499,7 @@ class HPROFParser:
                         class_name_map[serial] = self.strings[serial]
                     else:
                         class_name_map[serial] = f'class_{serial}'
+
         return class_name_map
 
     # =========================================================================
