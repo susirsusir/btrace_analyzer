@@ -149,6 +149,31 @@ class ParquetWriter:
             pq.write_table(table, filepath, compression='snappy')
 
 
+    def write_static_fields(
+        self,
+        static_field_refs: List[Dict],
+        class_name_map: Dict[int, str],
+        filename: str = "_static_fields"
+    ):
+        """Write static field references table."""
+        rows = []
+        for ref in static_field_refs:
+            class_serial = ref['class_serial']
+            rows.append({
+                'class_serial': class_serial,
+                'class_name': class_name_map.get(class_serial, f'class_{class_serial}'),
+                'obj_id': ref['obj_id'],
+                'type_code': ref['type_code'],
+            })
+
+        if rows:
+            table = pa.Table.from_pylist(rows)
+            filepath = os.path.join(self.output_dir, f"{filename}.parquet")
+            pq.write_table(table, filepath, compression='snappy')
+
+        return len(rows)
+
+
 def convert_hprof_to_parquet(
     hprof_path: str,
     output_dir: str,
@@ -176,6 +201,7 @@ def convert_hprof_to_parquet(
     writer.write_gc_roots(parser.gc_roots)
     writer.write_threads(parser.threads)
     writer.write_frames(parser.frames, class_name_map)
+    writer.write_static_fields(parser.static_field_refs, class_name_map)
 
     # Count records
     counts = {

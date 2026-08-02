@@ -191,21 +191,20 @@ def run_duckdb_analysis(parquet_dir: str) -> Dict[str, Any]:
     result['has_static_fields'] = has_sf
 
     if has_sf:
-        sf_pattern = os.path.join(parquet_dir, '_static_fields*.parquet')
+        sf_pattern = os.path.join(parquet_dir, '_static_fields.parquet')
         sf_holders = con.execute(f"""
-            SELECT class_name, field_name, field_type, COUNT(*) as ref_count
+            SELECT sf.class_name, COUNT(*) as ref_count
             FROM read_parquet('{sf_pattern}') sf
-            JOIN read_parquet('{obj_pattern}') oi ON sf.ref_id = oi.obj_id
-            GROUP BY class_name, field_name, field_type
+            JOIN read_parquet('{obj_pattern}') oi ON sf.obj_id = oi.obj_id
+            GROUP BY sf.class_name
             ORDER BY ref_count DESC
             LIMIT 50
         """).fetchall()
         result['static_field_holders'] = [
-            {'class': r[0], 'field': r[1], 'type': r[2], 'count': r[3]} for r in sf_holders
+            {'class': r[0], 'count': r[1]} for r in sf_holders
         ]
     else:
         result['static_field_holders'] = []
-        result['static_fields_note'] = "_static_fields parquet 不存在，A3 分析跳过"
 
     # ── A4: Class hierarchy ──────────────────────────────────────────
     hier_file = os.path.join(parquet_dir, '_class_hierarchy.parquet')
@@ -309,9 +308,8 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     # 概要中增加线程数
     thread_count = len(analysis.get('threads', []))
     lines.append(f"| 线程快照数 | {thread_count} |")
-    if analysis.get('static_fields_note'):
+    if not analysis.get('has_static_fields'):
         lines.append(f"| ⚠️ 静态字段分析 | {analysis['static_fields_note']} |")
-
     lines.append("\n### 健康状况\n")
     if total_gc > 100:
         lines.append(f"🟡 **中等风险** — 检测到 {total_gc} 个 GC Root，建议进一步分析引用链。")
@@ -423,14 +421,11 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
 
     # 静态字段分析
     if analysis.get('has_static_fields'):
-        lines.append("\n### 静态字段持有者\n")
-        lines.append("| 类名 | 字段名 | 字段类型 | 引用数 |")
-        lines.append("|------|--------|----------|--------|")
+        lines.append("\n### 静态字段持有者 Top 30\n")
+        lines.append("| 类名 | 持有引用数 |")
+        lines.append("|------|------------|")
         for sf in analysis.get('static_field_holders', [])[:30]:
-            lines.append(f"| `{sf['class']}` | `{sf['field']}` | {sf['type']} | {sf['count']:,} |")
-    elif analysis.get('static_fields_note'):
-        lines.append(f"\n### 静态字段分析\n")
-        lines.append(f"⚠️ {analysis['static_fields_note']}\n")
+            lines.append(f"| `{sf['class']}` | {sf['count']:,} |")
 
     # 类层次
     if analysis.get('hierarchy'):

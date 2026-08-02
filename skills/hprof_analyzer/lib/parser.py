@@ -28,6 +28,7 @@ class HPROFParser:
         self.gc_roots = []
         self.threads = {}
         self.frames = {}
+        self.static_field_refs = []  # class_serial → list of (obj_id, type_code)
 
     def _detect_record_start(self) -> int:
         """Detect record start from hprof header."""
@@ -562,6 +563,58 @@ class HPROFParser:
 
         return count
 
+    def parse_static_fields(self) -> int:
+        """Extract static field references from 0x1400 and 0x6F00 chunks.
+
+        These chunks contain class_serial -> object_id references representing
+        static fields that hold references to other objects.
+
+        Each entry format (marker-based):
+          [marker 00 40 00 class_serial(1B)] [entry_data]
+          entry_data[0:4] = obj_id (LE uint32)
+          entry_data[4]   = type_code (field type)
+        """
+        count = 0
+        source_tags = {0x1400, 0x6F00}
+
+        for c in self.chunks:
+            if c['tag'] not in source_tags:
+                continue
+
+            payload = c['payload']
+            if b'\x00\x40\x00' not in payload:
+                continue
+
+            p = 0
+            while True:
+                pos = payload.find(b'\x00\x40\x00', p)
+                if pos == -1:
+                    break
+                # Safety check: need at least 4 bytes after marker for class_serial
+                if pos + 4 > len(payload):
+                    break
+                class_serial = payload[pos + 3]
+                next_pos = payload.find(b'\x00\x40\x00', pos + 1)
+                if next_pos == -1:
+                    next_pos = len(payload)
+                entry_data = payload[pos + 4:next_pos]
+
+                if len(entry_data) >= 5 and 0 < class_serial < 256:
+                    obj_id = struct.unpack_from('<I', entry_data, 0)[0]
+                    type_code = entry_data[4]
+
+                    if obj_id > 0:
+                        self.static_field_refs.append({
+                            'class_serial': class_serial,
+                            'obj_id': obj_id,
+                            'type_code': type_code,
+                        })
+                        count += 1
+
+                p = pos + 1
+
+        return count
+
     # =========================================================================
     # Class name resolution (enhanced)
     # =========================================================================
@@ -676,6 +729,7 @@ class HPROFParser:
         gc_count = self.parse_gc_roots()
         thread_count = self.parse_threads()
         frame_count = self.parse_frames()
+        sf_count = self.parse_static_fields()
 
         # Build class name map
         class_name_map = self.build_class_name_map()
@@ -687,6 +741,7 @@ class HPROFParser:
             'gc_roots': self.gc_roots,
             'threads': self.threads,
             'frames': self.frames,
+            'static_field_refs': self.static_field_refs,
             'class_name_map': class_name_map,
             'stats': {
                 'chunks': len(self.chunks),
@@ -696,6 +751,7 @@ class HPROFParser:
                 'gc_roots': gc_count,
                 'threads': thread_count,
                 'frames': frame_count,
+                'static_fields': sf_count,
             }
         }
 
