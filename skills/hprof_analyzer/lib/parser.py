@@ -416,9 +416,10 @@ class HPROFParser:
     def parse_threads(self) -> int:
         """Extract thread information from THREAD_SUSPEND chunks.
 
-        Supports:
+        Supports three formats:
         1. Small chunks with 0x004000 markers (marker-based format)
-        2. Large chunks with 0x6FE55848 pattern (fixed 20-byte records)
+        2. Large chunks with 0x6FE55848 pattern (fixed records)
+        3. Large chunks with variable-length records (flag=0x00000000 padding)
         """
         count = 0
 
@@ -459,7 +460,7 @@ class HPROFParser:
                             count += 1
 
             # Strategy 2: Parse large chunk with 0x6FE55848 pattern
-            elif b'\x6f\xe5\x58\x48' in payload:
+            if b'\x6f\xe5\x58\x48' in payload:
                 pattern_positions = []
                 p = 0
                 while True:
@@ -469,24 +470,45 @@ class HPROFParser:
                     pattern_positions.append(pos)
                     p = pos + 1
 
-                # Analyze intervals to find record size
                 if len(pattern_positions) > 1:
+                    # Analyze intervals to find record size
                     intervals = [pattern_positions[i+1] - pattern_positions[i]
-                                 for i in range(min(20, len(pattern_positions)-1))]
+                                 for i in range(min(50, len(pattern_positions)-1))]
                     from collections import Counter
                     interval_counts = Counter(intervals)
                     most_common_interval = interval_counts.most_common(1)[0][0]
 
-                    # Parse records at common interval
+                    # Parse all records using the most common interval
                     for pos in pattern_positions:
-                        if pos >= 4:
-                            tid = struct.unpack_from('<I', payload, pos - 4)[0]
-                            if tid > 0 and tid < 0x10000000:
-                                self.threads[tid] = {
-                                    'name': '',
-                                    'class_serial': 0,
-                                }
-                                count += 1
+                        if pos + most_common_interval > len(payload):
+                            continue
+                        rec = payload[pos:pos + most_common_interval]
+
+                        # Try to extract thread_serial from different offsets
+                        # Format: [magic(4B)] [flag(4B)] [thread_serial(4B)] [class_serial(4B)] ...
+                        if len(rec) >= 12:
+                            flag = struct.unpack_from('<I', rec, 4)[0]
+                            thread_serial = struct.unpack_from('<I', rec, 8)[0]
+
+                            # flag=335544320 (0x14000000) indicates valid thread record
+                            # flag=0 indicates padding/null record
+                            if flag == 0x14000000 and thread_serial != 0:
+                                if thread_serial not in self.threads:
+                                    self.threads[thread_serial] = {
+                                        'name': '',
+                                        'class_serial': 0,
+                                    }
+                                    count += 1
+                            elif flag == 0 and thread_serial != 0:
+                                # Some records have flag=0 but still contain thread info
+                                # Try reading class_serial at offset 8 as thread_serial
+                                candidate = thread_serial
+                                if candidate > 0 and candidate not in self.threads:
+                                    self.threads[candidate] = {
+                                        'name': '',
+                                        'class_serial': 0,
+                                    }
+                                    count += 1
 
         return count
 

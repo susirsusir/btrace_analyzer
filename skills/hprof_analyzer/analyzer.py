@@ -306,6 +306,9 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     lines.append(f"| 类名覆盖率 | {cov_pct:.1f}% ({mapped:,}/{total_objs:,}) |")
     lines.append(f"| GC Root 数量 | {total_gc} |")
     lines.append(f"| 浅大小估算 | {analysis.get('shallow_size_estimate_mb', 0):.2f} MB |")
+    # 概要中增加线程数
+    thread_count = len(analysis.get('threads', []))
+    lines.append(f"| 线程快照数 | {thread_count} |")
     if analysis.get('static_fields_note'):
         lines.append(f"| ⚠️ 静态字段分析 | {analysis['static_fields_note']} |")
 
@@ -440,11 +443,14 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     # ── 线程快照 ─────────────────────────────────────────────────────
     lines.append("\n## 线程快照\n")
     if analysis.get('threads'):
-        lines.append("### 活跃线程\n")
+        thread_count = len(analysis['threads'])
+        lines.append(f"### 活跃线程 ({thread_count} 个)\n")
         lines.append("| 线程 Serial | 名称 | 挂起类型 |")
         lines.append("|-------------|------|----------|")
-        for t in analysis['threads'][:20]:
+        for t in analysis['threads'][:50]:
             lines.append(f"| {t['serial']} | `{t['name'] or '(匿名)'}` | {t['suspend_type']} |")
+        if thread_count > 50:
+            lines.append(f"\n> 显示前 50 个，共 {thread_count} 个线程\n")
     else:
         lines.append("⚠️ 未找到线程数据。\n")
 
