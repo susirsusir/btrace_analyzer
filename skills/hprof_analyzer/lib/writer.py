@@ -57,6 +57,7 @@ class ParquetWriter:
     def write_class_hierarchy(
         self,
         classes: Dict[int, Dict],
+        class_name_map: Dict[int, str],
         filename: str = "_class_hierarchy"
     ):
         """Write class hierarchy table (single file)."""
@@ -65,7 +66,7 @@ class ParquetWriter:
             instance_count = cls_info.get('num_instances', 0) if isinstance(cls_info, dict) else cls_info
             rows.append({
                 'class_id': cls_id,
-                'class_name': f'class_{cls_id}',
+                'class_name': class_name_map.get(cls_id, f'class_{cls_id}'),
                 'super_class_id': 0,
                 'num_instances': instance_count,
             })
@@ -126,15 +127,17 @@ class ParquetWriter:
     def write_frames(
         self,
         frames: Dict[int, Dict],
+        class_name_map: Dict[int, str],
         filename: str = "_frames"
     ):
         """Write stack frames table."""
         rows = []
         for frame_id, frame_info in frames.items():
+            serial = frame_info.get('class_serial', 0)
             rows.append({
                 'frame_id': frame_id,
-                'class_serial': frame_info.get('class_serial', 0),
-                'class_name': f'class_{frame_info.get("class_serial", 0)}',
+                'class_serial': serial,
+                'class_name': class_name_map.get(serial, f'class_{serial}'),
                 'method_index': frame_info.get('method_index', 0),
                 'line_number': frame_info.get('line', -1),
                 'type_code': frame_info.get('type_code', 0),
@@ -161,20 +164,18 @@ def convert_hprof_to_parquet(
     parser = HPROFParser(hprof_path)
     data = parser.parse_all()
 
-    # Build class name map
-    class_name_map: Dict[int, str] = {}
-    for cls_id in parser.class_map.keys():
-        class_name_map[cls_id] = f'class_{cls_id}'
+    # Use parser's class name map (built from CHUNK_HEADER + string tags + heuristic lookup)
+    class_name_map = parser.build_class_name_map()
 
     # Initialize writer
     writer = ParquetWriter(output_dir, shard_size)
 
     # Write tables
     writer.write_objects(parser.object_list, class_name_map)
-    writer.write_class_hierarchy(parser.class_map)
+    writer.write_class_hierarchy(parser.class_map, class_name_map)
     writer.write_gc_roots(parser.gc_roots)
     writer.write_threads(parser.threads)
-    writer.write_frames(parser.frames)
+    writer.write_frames(parser.frames, class_name_map)
 
     # Count records
     counts = {

@@ -609,8 +609,12 @@ class HPROFParser:
 
                     p = sep + 13
 
-        # Strategy 3: Serial-based heuristic lookup for unmapped classes
-        for serial in self.class_map.keys():
+        # Strategy 3: Serial-based heuristic lookup for all unmapped serials
+        # Collect all serials that appear anywhere (class_map + object_list)
+        all_serials = set(self.class_map.keys()) | {
+            o['class_serial'] for o in self.object_list
+        }
+        for serial in all_serials:
             if serial in class_name_map:
                 continue
 
@@ -618,17 +622,21 @@ class HPROFParser:
             sid = serial << 14
             if sid in self.strings:
                 class_name_map[serial] = self.strings[sid]
-            else:
-                # Try serial << 13
-                sid = serial << 13
-                if sid in self.strings:
-                    class_name_map[serial] = self.strings[sid]
-                else:
-                    # Try direct serial lookup
-                    if serial in self.strings:
-                        class_name_map[serial] = self.strings[serial]
-                    else:
-                        class_name_map[serial] = f'class_{serial}'
+                continue
+
+            # Try serial << 13
+            sid = serial << 13
+            if sid in self.strings:
+                class_name_map[serial] = self.strings[sid]
+                continue
+
+            # Try direct serial lookup
+            if serial in self.strings:
+                class_name_map[serial] = self.strings[serial]
+                continue
+
+            # Fallback to class_serial placeholder
+            class_name_map[serial] = f'class_{serial}'
 
         return class_name_map
 
