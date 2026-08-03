@@ -38,7 +38,11 @@ class HPROFParser:
         return 16 + stated_size
 
     def scan_chunks(self) -> List[Dict]:
-        """Scan all chunks, reading payload into memory."""
+        """Scan all chunks, reading payload into memory.
+
+        Supports both marker-based format (0x00 0x40 + type + length)
+        and dense packed format (89_6f, 89_14_cb).
+        """
         with open(self.filepath, 'rb') as f:
             f.seek(self.record_start)
             data = f.read()
@@ -46,16 +50,23 @@ class HPROFParser:
         chunks = []
         pos = 0
         while pos < len(data) - 4:
-            tag, length = struct.unpack_from('<HH', data, pos)
-            if length >= 4 and pos + length <= len(data):
-                chunks.append({
-                    'tag': tag,
-                    'abs_pos': self.record_start + pos,
-                    'offset': pos,
-                    'length': length,
-                    'payload': data[pos+4:pos+length]
-                })
-                pos += length
+            # Check for marker-based format: 0x00 0x40 + type(1B) + length(2B)
+            if data[pos] == 0x00 and data[pos+1] == 0x40:
+                chunk_type = data[pos+2]
+                chunk_len = struct.unpack_from('<H', data, pos+3)[0]
+
+                # Validate chunk length
+                if chunk_len > 0 and pos + 5 + chunk_len + 4 <= len(data):
+                    chunks.append({
+                        'tag': chunk_type,
+                        'abs_pos': self.record_start + pos,
+                        'offset': pos,
+                        'length': chunk_len,
+                        'payload': data[pos+5:pos+5+chunk_len]
+                    })
+                    pos += 5 + chunk_len + 4  # marker(2) + type(1) + len(2) + payload + id(4)
+                else:
+                    pos += 1
             else:
                 pos += 1
 
