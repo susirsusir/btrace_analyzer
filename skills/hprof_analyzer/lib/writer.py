@@ -183,6 +183,12 @@ def convert_hprof_to_parquet(
     Main entry point: parse HPROF and write Parquet files.
     Returns dict of table counts for verification.
     """
+    import glob
+    # Clean old parquet files to prevent stale data mixing
+    os.makedirs(output_dir, exist_ok=True)
+    for old_file in glob.glob(os.path.join(output_dir, "*.parquet")):
+        os.remove(old_file)
+
     from .parser import HPROFParser
 
     # Parse

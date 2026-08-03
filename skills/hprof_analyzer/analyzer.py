@@ -34,11 +34,7 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
     """Convert HPROF to Parquet. Always performs conversion to ensure fresh data."""
     print(f"Converting HPROF to Parquet...")
 
-    # Parse HPROF using the library parser
-    parser = HPROFParser(hprof_path)
-    data = parser.parse_all()
-
-    # Write Parquet using the library writer
+    # Write Parquet using the library writer (includes parsing internally)
     counts = convert_hprof_to_parquet(hprof_path, output_dir)
 
     print(f"✓ Conversion complete. Parquet files written to {output_dir}")
@@ -309,7 +305,7 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     thread_count = len(analysis.get('threads', []))
     lines.append(f"| 线程快照数 | {thread_count} |")
     if not analysis.get('has_static_fields'):
-        lines.append(f"| ⚠️ 静态字段分析 | {analysis['static_fields_note']} |")
+        lines.append(f"| ⚠️ 静态字段分析 | {analysis.get('static_fields_note', '静态字段数据不可用')} |")
     lines.append("\n### 健康状况\n")
     if total_gc > 100:
         lines.append(f"🟡 **中等风险** — 检测到 {total_gc} 个 GC Root，建议进一步分析引用链。")

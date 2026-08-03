@@ -31,11 +31,20 @@ class HPROFParser:
         self.static_field_refs = []  # class_serial → list of (obj_id, type_code)
 
     def _detect_record_start(self) -> int:
-        """Detect record start from hprof header."""
+        """Detect record start from hprof header.
+
+        hprof-libs (Android 7.0+): chunks start at fixed offset 0x80
+        hprof-heap (standard): records start at 16 + stated_size
+        """
         with open(self.filepath, 'rb') as f:
             f.read(16)
             stated_size = struct.unpack_from('<I', f.read(4), 0)[0]
-        return 16 + stated_size
+        if stated_size > 2000:
+            # hprof-libs format: chunks start at fixed offset 0x80
+            return 0x80
+        else:
+            # standard hprof-heap format
+            return 16 + stated_size
 
     def scan_chunks(self) -> List[Dict]:
         """Scan all chunks, reading payload into memory.
@@ -373,10 +382,13 @@ class HPROFParser:
         return count
 
     def parse_gc_roots(self) -> int:
-        """Extract GC roots from SAMPLE_GC_HEAP chunks.
+        """Extract GC root information from SAMPLE_GC_HEAP chunks (tag 0x0005).
 
-        Each record is 20 bytes:
-          object_id(4B) + root_info(4B) + root_kind(2B) + class_serial(4B) + pad(4B) + extra(2B)
+        Supports two formats:
+        1. Marker-based (00 40 00 XX): small chunks with 5-byte entries
+           Entry: obj_id(2B LE) + root_kind(1B) + root_info(2B) + [optional extra]
+        2. Dense 9-byte entries: large chunks without 00 40 00 markers
+           Entry: class_serial(1B) + obj_id(4B LE) + root_kind(2B LE) + marker(1B) + extra(1B)
         """
         count = 0
         kind_names = {
@@ -386,42 +398,91 @@ class HPROFParser:
             9: 'DAEMON_WORKER', 10: 'UNKNOWN',
         }
 
+        def _kind_str(rk):
+            return kind_names.get(rk, 'UNKNOWN') if 0 <= rk <= 10 else 'UNKNOWN'
+
         for c in self.chunks:
             if c['tag'] != 0x0005:
                 continue
 
             payload = c['payload']
+            has_markers = b'\x00\x40\x00' in payload
 
-            # Find sync point for large chunks
-            sync_pos = self.find_sync_point(
-                payload,
-                lambda p: p + 10 <= len(payload) and
-                          struct.unpack_from('<I', payload, p)[0] > 0 and
-                          struct.unpack_from('<H', payload, p+8)[0] <= 10,
-                step=4,
-            )
+            # Strategy 1: Marker-based (00 40 00 XX) for small chunks
+            if has_markers:
+                markers = []
+                p = 0
+                while True:
+                    pos = payload.find(b'\x00\x40\x00', p)
+                    if pos == -1:
+                        break
+                    markers.append(pos)
+                    p = pos + 1
 
-            start = sync_pos if sync_pos is not None else 0
-            p = start
+                for i, marker_pos in enumerate(markers):
+                    if marker_pos + 3 >= len(payload):
+                        continue
+                    class_serial = payload[marker_pos + 3]
 
-            while p + 20 <= len(payload):
-                object_id = struct.unpack_from('<I', payload, p)[0]
-                root_info = struct.unpack_from('<I', payload, p+4)[0]
-                root_kind = struct.unpack_from('<H', payload, p+8)[0]
-                class_serial = struct.unpack_from('<I', payload, p+10)[0]
+                    entry_start = marker_pos + 4
+                    entry_end = markers[i+1] if i+1 < len(markers) else len(payload)
+                    entry_data = payload[entry_start:entry_end]
 
-                if root_kind <= 10 and object_id > 0:
-                    self.gc_roots.append({
-                        'kind': kind_names.get(root_kind, '?'),
-                        'root_kind_raw': root_kind,
-                        'root_info': root_info,
-                        'object_id': object_id,
-                        'class_serial': class_serial,
-                    })
-                    p += 20
-                    count += 1
-                else:
-                    p += 4
+                    if len(entry_data) >= 5:
+                        obj_id = struct.unpack_from('<H', entry_data, 0)[0]
+                        root_kind = entry_data[2]
+                        root_info = struct.unpack_from('<H', entry_data, 3)[0] if len(entry_data) >= 5 else 0
+
+                        if obj_id > 0:
+                            self.gc_roots.append({
+                                'kind': _kind_str(root_kind),
+                                'root_info': root_info,
+                                'object_id': obj_id,
+                                'class_serial': class_serial,
+                            })
+                            count += 1
+
+            # Strategy 2: Dense 9-byte entries for large chunks without markers
+            elif c['length'] > 1000:
+                p = 0
+                while p + 9 <= len(payload):
+                    class_serial = payload[p]
+                    obj_id = struct.unpack_from('<I', payload, p + 1)[0]
+                    root_kind = struct.unpack_from('<H', payload, p + 5)[0]
+                    marker = payload[p + 7]
+                    extra = payload[p + 8]
+
+                    if marker in (0x40, 0x41) and root_kind <= 10 and obj_id > 0:
+                        self.gc_roots.append({
+                            'kind': _kind_str(root_kind),
+                            'root_info': extra,
+                            'object_id': obj_id,
+                            'class_serial': class_serial,
+                        })
+                        count += 1
+                        p += 9
+                    else:
+                        p += 1
+
+            # Strategy 3: Fallback to 20-byte scan
+            else:
+                p = 0
+                while p + 20 <= len(payload):
+                    object_id = struct.unpack_from('<I', payload, p)[0]
+                    root_info = struct.unpack_from('<I', payload, p+4)[0]
+                    root_kind = struct.unpack_from('<H', payload, p+8)[0]
+
+                    if root_kind <= 10 and object_id > 0:
+                        self.gc_roots.append({
+                            'kind': _kind_str(root_kind),
+                            'root_info': root_info,
+                            'object_id': object_id,
+                            'class_serial': 0,
+                        })
+                        count += 1
+                        p += 20
+                    else:
+                        p += 4
 
         return count
 
@@ -522,14 +583,32 @@ class HPROFParser:
                                     }
                                     count += 1
 
+        # Resolve thread names from STRING_DUMP table
+        # Thread names are typically short identifiers like "main", "Binder-1", etc.
+        # Only accept strings that look like thread names (not random field/constant names)
+        for tid, info in self.threads.items():
+            if not info.get('name'):
+                for shift in [14, 13, 0]:
+                    sid = tid << shift
+                    if sid in self.strings:
+                        candidate = self.strings[sid]
+                        # Only accept short names (< 50 chars) without underscores
+                        # or common thread name patterns (main, binder, gc, etc.)
+                        if candidate and len(candidate) < 50 and '_' not in candidate:
+                            lower_cand = candidate.lower()
+                            if any(kw in lower_cand for kw in ['main', 'binder', 'gc', 'thread', 'queue', 'handler', 'pool', 'worker', 'render', 'finalizer', 'watchdog', 'process']):
+                                info['name'] = candidate
+                                break
+
         return count
 
     def parse_frames(self) -> int:
-        """Extract stack frame information from STACK_FRAME chunks.
+        """Extract stack frame information from STACK_FRAME chunks (tag 0x0002).
 
         Supports:
         1. Pre-marker block with 5-byte records (frame_id + type_code)
-        2. Marker-based entries with type_code and class_serial
+        2. Marker-based entries: frame_id(4B LE) + type_code(1B) after 00 40 00 marker
+        3. Dense 8-byte entries: class_serial(1B) + frame_id(4B LE) + type_code(2B LE) + marker(1B)
         """
         count = 0
 
@@ -539,38 +618,80 @@ class HPROFParser:
 
             payload = c['payload']
             first_marker = payload.find(b'\x00\x40\x00')
-            if first_marker == -1:
-                continue
 
-            # Parse pre-marker block (5-byte records)
-            pre = payload[:first_marker]
-            p = 0
-            while p + 5 <= len(pre):
-                fid = struct.unpack_from('<I', pre, p)[0]
-                tc = pre[p+4] if p + 5 <= len(pre) else 0
+            # Strategy 1: Marker-based format
+            if first_marker != -1:
+                # Parse pre-marker block (5-byte records)
+                pre = payload[:first_marker]
+                p = 0
+                while p + 5 <= len(pre):
+                    fid = struct.unpack_from('<I', pre, p)[0]
+                    tc = pre[p+4] if p + 5 <= len(pre) else 0
 
-                if fid > 0 and fid < 10000000:
-                    self.frames[fid] = {
-                        'class_serial': 0,
-                        'method_index': 0,
-                        'line': -1,
-                        'type_code': tc,
-                    }
-                    count += 1
-                p += 5
+                    if fid > 0 and fid < 10000000:
+                        self.frames[fid] = {
+                            'class_serial': 0,
+                            'method_index': 0,
+                            'line': -1,
+                            'type_code': tc,
+                        }
+                        count += 1
+                    p += 5
 
-            # Parse marker-based entries
-            entries = self._parse_marker_based_entries(payload)
-            for entry in entries:
-                fid = entry['obj_id']
-                if fid > 0 and fid < 10000000:
-                    self.frames[fid] = {
-                        'class_serial': entry['class_serial'],
-                        'method_index': 0,
-                        'line': -1,
-                        'type_code': entry['type_code'],
-                    }
-                    count += 1
+                # Parse marker-based entries
+                # In STACK_FRAME, entry_data after 00 40 00 class_serial is:
+                # frame_id(4B LE) + type_code(1B)
+                markers = []
+                p = 0
+                while True:
+                    pos = payload.find(b'\x00\x40\x00', p)
+                    if pos == -1:
+                        break
+                    markers.append(pos)
+                    p = pos + 1
+
+                for i, marker_pos in enumerate(markers):
+                    if marker_pos + 3 >= len(payload):
+                        continue
+                    class_serial = payload[marker_pos + 3]
+
+                    entry_start = marker_pos + 4
+                    entry_end = markers[i+1] if i+1 < len(markers) else len(payload)
+                    entry_data = payload[entry_start:entry_end]
+
+                    if len(entry_data) >= 5:
+                        fid = struct.unpack_from('<I', entry_data, 0)[0]
+                        tc = entry_data[4]
+
+                        if fid > 0 and fid < 10000000:
+                            self.frames[fid] = {
+                                'class_serial': class_serial,
+                                'method_index': 0,
+                                'line': -1,
+                                'type_code': tc,
+                            }
+                            count += 1
+
+            # Strategy 2: Dense 8-byte entries (for chunks without 00 40 00 markers)
+            elif c['length'] > 1000:
+                p = 0
+                while p + 8 <= len(payload):
+                    class_serial = payload[p]
+                    fid = struct.unpack_from('<I', payload, p + 1)[0]
+                    tc = struct.unpack_from('<H', payload, p + 5)[0] if p + 7 <= len(payload) else 0
+                    marker = payload[p + 7] if p + 8 <= len(payload) else 0
+
+                    if marker in (0x40, 0x41) and 0 < fid < 10000000:
+                        self.frames[fid] = {
+                            'class_serial': class_serial,
+                            'method_index': 0,
+                            'line': -1,
+                            'type_code': tc,
+                        }
+                        count += 1
+                        p += 8
+                    else:
+                        p += 1
 
         return count
 
@@ -660,8 +781,13 @@ class HPROFParser:
                         class_serial = meta[7]
                         text = text_bytes.decode('ascii', errors='replace')
 
-                        # Only keep actual class names (length > 8, contains class-like patterns)
-                        if len(text) > 8 and ('.' in text or '/' in text or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')):
+                        # Accept class names: len > 6, contains package-like patterns
+                        # Relaxed from len > 8 + requires '.' to also accept '_' and '$' patterns
+                        if len(text) > 6 and (
+                            '.' in text or '/' in text
+                            or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')
+                            # Removed: or '_' in text (was too permissive, picked up field names)
+                        ):
                             if not text.startswith('$SwitchMap') and not text.startswith('$$'):
                                 if class_serial not in class_name_map:
                                     class_name_map[class_serial] = text
@@ -687,8 +813,12 @@ class HPROFParser:
                             class_serial = meta[7]
                             text = text_bytes.decode('ascii', errors='replace')
 
-                            # Filter class names
-                            if len(text) > 8 and ('.' in text or '/' in text or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')):
+                            # Relaxed filter: accept underscore-separated names
+                            if len(text) > 6 and (
+                                '.' in text or '/' in text
+                                or text.startswith('$Proxy') or text.startswith('$this$') or text.startswith('$class$')
+                                # Removed: or '_' in text (too permissive)
+                            ):
                                 if not text.startswith('$SwitchMap') and not text.startswith('$$'):
                                     if class_serial not in class_name_map:
                                         class_name_map[class_serial] = text
