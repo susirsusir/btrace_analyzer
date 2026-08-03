@@ -489,9 +489,17 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     # ── 下一步行动 ───────────────────────────────────────────────────
     lines.append("## 下一步行动\n")
     lines.append("1. **优先处理 P0/P1 类** — 检查这些类是否被静态集合或单例持有\n")
-    lines.append("2. **获取 ProGuard mapping 文件** — 提升类名识别度到 A 级\n")
-    lines.append("3. **添加 `_static_fields` 解析** — 实现 A3 静态字段泄漏诊断\n")
-    lines.append("4. **逆向 CLASS_DUMP 大 chunk** — 恢复更多 class_serial 到类名的映射\n")
+
+    if cov_pct < 80:
+        lines.append("2. **提供 ProGuard/R8 mapping 文件** — 当前覆盖率仅 {:.1f}%，49 个 class_serial 完全无二进制线索\n".format(cov_pct))
+        lines.append("   - 从构建产物中获取 `mapping.txt`（位于 `app/build/outputs/mapping/release/`）\n")
+        lines.append("   - 将 mapping 文件放入 `<project_root>/hprof/` 目录，命名格式: `<hprof_name>_mapping.txt`\n")
+        lines.append("   - 解析器会自动检测并应用 mapping，覆盖率可提升至 95%+\n")
+    else:
+        lines.append("2. **获取 ProGuard mapping 文件** — 进一步提升类名识别度\n")
+
+    lines.append("3. **逆向 CLASS_DUMP 大 chunk** — 当前仅解析了 10 个类，大 chunk dense packed 格式未逆向\n")
+    lines.append("4. **解析 OBJECT_DUMP 字段值** — 从对象 payload 中提取字段引用，建立完整的引用链\n")
 
     if suspicious:
         lines.append("\n### 针对可疑类的具体排查建议\n")
