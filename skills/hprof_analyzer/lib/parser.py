@@ -285,6 +285,30 @@ class HPROFParser:
 
                     p = next_marker + 4
 
+        # Strategy 4: \x01 separator format (used in large chunks)
+        # Format: [text] 01 [7 zeros] [class_serial(1B)] [00 40] [2 extra bytes]
+        for c in self.chunks:
+            if c['tag'] != 0x00:
+                continue
+            payload = c['payload']
+            if b'\x01' not in payload:
+                continue
+            p = 0
+            while p < len(payload) - 13:
+                sep = payload.find(b'\x01', p)
+                if sep == -1:
+                    break
+                meta = payload[sep+1:sep+13]
+                if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                    class_serial = meta[7]
+                    if class_serial not in self.class_map:
+                        self.class_map[class_serial] = {
+                            'serial': class_serial,
+                            'num_instances': 0,
+                        }
+                        count += 1
+                p = sep + 13
+
         return count
 
     def parse_objects(self) -> int:
