@@ -288,96 +288,92 @@ class HPROFParser:
         return count
 
     def parse_objects(self) -> int:
-        """Extract object instances from OBJECT_DUMP and marker-based chunks.
+        """Extract object instances from all chunks.
 
         Supports:
-        1. OBJECT_DUMP (0x0004) with 89_6f or marker-based format
-        2. Unknown marker-based tags: 0x6F00, 0x1500, 0xE56F, 0x1400, 0x0100, 0x000A, etc.
+        1. 9-byte entry format: [prefix(1B)] [class_serial(1B)] [obj_id(4B LE)] [type(2B)] [marker(1B=0x41/0x40)]
+        2. OBJECT_DUMP (tag=0x04) with 89_6f or marker-based format
+        3. Dynamic marker-based chunks with 00 40 00 entries
         """
+        import struct as _struct
         count = 0
-        stats = {'format_89_6f': 0, 'format_marker': 0, 'unknown_tags': 0}
+        seen_obj_ids = set()  # Dedup across strategies
 
-        # 1. Parse OBJECT_DUMP (0x0004) chunks
+        # Strategy 1: 9-byte entry format (scan ALL chunks)
+        # This is the primary format for hprof-libs object data
+        EXCLUDED_TAGS = {0x00, 0x01, 0x05, 0x3F, 0x40}  # Skip CHUNK_HEADER, STRING, GC_ROOT, filler, marker
         for c in self.chunks:
-            if c['tag'] != 0x0004:
+            if c['tag'] in EXCLUDED_TAGS:
+                continue
+            payload = c['payload']
+            if len(payload) < 9:
                 continue
 
+            # Try 9-byte aligned parsing
+            # Look for 0x41 or 0x40 marker at byte 8 of each 9-byte entry
+            p = 0
+            while p + 9 <= len(payload):
+                marker = payload[p + 8]
+                if marker in (0x41, 0x40):
+                    # Validate: extract fields
+                    class_serial = payload[p + 1]
+                    obj_id = _struct.unpack_from('<I', payload, p + 2)[0]
+                    if obj_id > 0 and obj_id < 0x10000000 and class_serial > 0:
+                        key = (obj_id, class_serial)
+                        if key not in seen_obj_ids:
+                            seen_obj_ids.add(key)
+                            self.object_list.append({
+                                'obj_id': obj_id,
+                                'class_serial': class_serial,
+                            })
+                            count += 1
+                    p += 9
+                else:
+                    p += 1
+
+        # Strategy 2: OBJECT_DUMP (tag=0x04) with 89_6f format (fallback)
+        for c in self.chunks:
+            if c['tag'] != 0x04:
+                continue
             payload = c['payload']
             fmt = self.detect_dense_packed_format(payload)
-
-            # Format B: 89_6f dense packed (large chunks)
             if fmt and fmt[0] == '89_6f' and c['length'] > 1000:
-                stats['format_89_6f'] += 1
                 sync = self.find_sync_point(payload, lambda p: payload[p+3:p+5] == b'\x89\x6f')
                 p = sync if sync is not None else 0
                 while p + 7 <= len(payload):
                     if payload[p+3:p+5] == b'\x89\x6f':
-                        obj_id = struct.unpack_from('<I', payload, p)[0]
+                        obj_id = _struct.unpack_from('<I', payload, p)[0]
                         type_code = payload[p+2]
                         if obj_id > 0:
-                            self.object_list.append({
-                                'obj_id': obj_id,
-                                'class_serial': type_code,
-                            })
-                            count += 1
+                            key = (obj_id, type_code)
+                            if key not in seen_obj_ids:
+                                seen_obj_ids.add(key)
+                                self.object_list.append({
+                                    'obj_id': obj_id,
+                                    'class_serial': type_code,
+                                })
+                                count += 1
                         p += 7
                     else:
-                        next_pos = payload.find(b'\x89\x6f', p + 1)
-                        if next_pos == -1:
-                            break
-                        candidate = next_pos - 3
-                        if candidate >= 0 and candidate % 7 == 0:
-                            p = candidate
-                        else:
-                            p = next_pos - 3 if next_pos >= 3 else p + 1
+                        p += 1
 
-            # Format A: Marker-based
-            else:
-                stats['format_marker'] += 1
-                entries = self._parse_marker_based_entries(payload)
-                for entry in entries:
-                    self.object_list.append({
-                        'obj_id': entry['obj_id'],
-                        'class_serial': entry['class_serial'],
-                    })
-                    count += 1
-
-        # 2. Parse unknown marker-based tags
-        # 已知的 marker-based tag
-        known_marker_tags = {0x6F00, 0x1500, 0xE56F, 0x1400, 0x0100, 0x000A, 
-                             0x1521, 0x7002, 0x2300, 0xFFFF, 0x2200, 0x023E, 
-                             0x728D, 0x3F08, 0x0200, 0xEA6F, 0x0C00, 0x1510,
-                             0xFF0A, 0x1470, 0xEF6F, 0x708D, 0x7200, 0x8D3F,
-                             0x2170, 0x4100, 0x8613, 0xDF6F, 0xE070, 0xE07E,
-                             0xE089, 0xE0B2, 0xE76F, 0xE8CF, 0xE96F, 0xEE6F,
-                             0xEF6F, 0xF148, 0xF1D8}
-        
-        # 动态检测其他 marker-based tag
-        marker_tags = list(known_marker_tags)
-        
-        # 扫描所有 chunks，检测包含 0x004000 的未知 tag
+        # Strategy 3: Marker-based entries (00 40 00) from remaining chunks
         for c in self.chunks:
-            tag = c['tag']
-            if tag in known_marker_tags or tag in {0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 
-                                                    0x0010, 0x0011, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0019,
-                                                    0x0030, 0x0031, 0x0032, 0x3F3F, 0x3F00, 0x003F, 0x0040}:
+            if c['tag'] in EXCLUDED_TAGS or c['tag'] == 0x04:
                 continue
-            if b'\x00\x40\x00' in c['payload']:
-                if tag not in marker_tags:
-                    marker_tags.append(tag)
-
-        for tag in marker_tags:
-            tag_chunks = [c for c in self.chunks if c['tag'] == tag]
-
-            for c in tag_chunks:
-                entries = self._parse_marker_based_entries(c['payload'])
-                for entry in entries:
+            payload = c['payload']
+            if b'\x00\x40\x00' not in payload:
+                continue
+            entries = self._parse_marker_based_entries(payload)
+            for entry in entries:
+                key = (entry['obj_id'], entry['class_serial'])
+                if key not in seen_obj_ids and entry['obj_id'] > 0:
+                    seen_obj_ids.add(key)
                     self.object_list.append({
                         'obj_id': entry['obj_id'],
                         'class_serial': entry['class_serial'],
                     })
                     count += 1
-                stats['unknown_tags'] += len(entries)
 
         return count
 
@@ -758,6 +754,23 @@ class HPROFParser:
 
         return count
 
+    def _is_better_class_name(self, new_name, old_name):
+        """Check if new_name is a better class name than old_name."""
+        if not new_name or new_name.startswith('class_'):
+            return False
+        # If old name is empty or class_XX placeholder, accept new
+        if not old_name or old_name.startswith('class_'):
+            return True
+        # If new has package separator and old doesn't, new is better
+        new_has_dot = '.' in new_name
+        old_has_dot = '.' in old_name
+        if new_has_dot and not old_has_dot:
+            return True
+        if not new_has_dot and old_has_dot:
+            return False
+        # Both have dots or both don't — keep existing (first wins)
+        return False
+
     def build_class_name_map(self) -> Dict[int, str]:
         """Build class_serial to class_name mapping.
 
@@ -771,8 +784,9 @@ class HPROFParser:
 
         # Strategy 1: Parse CHUNK_HEADER chunks for direct mapping
         for c in self.chunks:
-            if c['tag'] != 0x0000:
-                continue
+            # Scan ALL chunks (not just tag=0x00) for class name mappings
+            for c in self.chunks:
+                pass  # was continue
 
             payload = c['payload']
             p = 0
@@ -796,7 +810,7 @@ class HPROFParser:
                             # Removed: or '_' in text (was too permissive, picked up field names)
                         ):
                             if not text.startswith('$SwitchMap') and not text.startswith('$$'):
-                                if class_serial not in class_name_map:
+                                if self._is_better_class_name(text, class_name_map.get(class_serial, '')):
                                     class_name_map[class_serial] = text
 
                 p = sep + 13
@@ -827,10 +841,35 @@ class HPROFParser:
                                 # Removed: or '_' in text (too permissive)
                             ):
                                 if not text.startswith('$SwitchMap') and not text.startswith('$$'):
-                                    if class_serial not in class_name_map:
+                                    if self._is_better_class_name(text, class_name_map.get(class_serial, '')):
                                         class_name_map[class_serial] = text
 
                     p = sep + 13
+
+        # Strategy 4: Scan ALL remaining chunks for class-like names
+        # Only accept names that look like real class names (contain package separator)
+        APP_PREFIXES = ('com.', 'cn.', 'org.', 'android.', 'java.', 'kotlin.', 'hb.', 'com.tencent', 'com.alibaba')
+        for c in self.chunks:
+            payload = c['payload']
+            if b'\x01' not in payload:
+                continue
+            p = 0
+            while p < len(payload) - 13:
+                sep = payload.find(b'\x01', p)
+                if sep == -1:
+                    break
+                text_bytes = payload[p:sep]
+                if len(text_bytes) > 0 and all(32 <= b < 127 for b in text_bytes):
+                    meta = payload[sep+1:sep+13]
+                    if len(meta) >= 12 and all(b == 0 for b in meta[:7]):
+                        class_serial = meta[7]
+                        text = text_bytes.decode('ascii', errors='replace')
+                        # Only accept names that look like real class names
+                        if len(text) > 8 and any(text.startswith(prefix) for prefix in APP_PREFIXES):
+                            if not text.startswith('$SwitchMap') and not text.startswith('$$'):
+                                if self._is_better_class_name(text, class_name_map.get(class_serial, '')):
+                                    class_name_map[class_serial] = text
+                p = sep + 13
 
         # Strategy 3: Serial-based heuristic lookup for all unmapped serials
         # Collect all serials that appear anywhere (class_map + object_list)
