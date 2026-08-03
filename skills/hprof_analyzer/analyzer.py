@@ -39,16 +39,18 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
     std_class_names = {}
     if is_hprof_libs(hprof_path):
         import os, tempfile
-        std_path = os.path.join(output_dir, '_standard.hprof')
+        # 输出到 hprof_analysis/xxx/standard/xxx.standard.hprof
+        std_dir = os.path.join(os.path.dirname(output_dir), 'standard')
+        os.makedirs(std_dir, exist_ok=True)
+        hprof_basename = os.path.basename(hprof_path).replace('.hprof', '.standard.hprof')
+        std_path = os.path.join(std_dir, hprof_basename)
         print(f"  Detected hprof-libs format, running hprof-conv...")
         if convert_to_standard(hprof_path, std_path):
             std_parser = StandardHprofParser(std_path)
             std_parser.parse_strings_and_classes()
             std_class_names = std_parser.class_names
             print(f"  ✓ Standard parser: {len(std_class_names):,} class names extracted")
-            # Clean up standard hprof file
-            try: os.remove(std_path)
-            except: pass
+            # 保留 standard hprof 供后续 HeapDumpStarDiver 使用
 
     # Write Parquet using the library writer (includes parsing internally)
     counts = convert_hprof_to_parquet(hprof_path, output_dir, std_class_names=std_class_names)
@@ -622,8 +624,23 @@ def analyze_hprof(
     output_base = project_root / "hprof_analysis" / basename
     output_base.mkdir(parents=True, exist_ok=True)
 
+    # 目录结构: hprof_analysis/xxx/
+    #   raw/        — 原始 hprof 副本
+    #   standard/   — hprof-conv 转换的标准 HPROF
+    #   parquet/    — Parquet 数据
+    #   xxx_report.md — 分析报告
+    raw_dir = output_base / "raw"
+    raw_dir.mkdir(exist_ok=True)
+    standard_dir = output_base / "standard"
+    standard_dir.mkdir(exist_ok=True)
     parquet_dir = str(output_base / "parquet")
     os.makedirs(parquet_dir, exist_ok=True)
+
+    # 复制原始 hprof 到 raw/ 目录
+    import shutil
+    raw_copy = str(raw_dir / f"{basename}.hprof")
+    if not os.path.isfile(raw_copy):
+        shutil.copy2(hprof_path, raw_copy)
 
     # Step 1: Convert HPROF to Parquet
     counts = ensure_parquet(hprof_path, parquet_dir)
