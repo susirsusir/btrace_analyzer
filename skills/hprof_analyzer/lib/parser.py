@@ -880,25 +880,21 @@ class HPROFParser:
             if serial in class_name_map:
                 continue
 
-            # Try serial << 14
-            sid = serial << 14
-            if sid in self.strings:
-                class_name_map[serial] = self.strings[sid]
-                continue
-
-            # Try serial << 13
-            sid = serial << 13
-            if sid in self.strings:
-                class_name_map[serial] = self.strings[sid]
-                continue
-
-            # Try direct serial lookup
-            if serial in self.strings:
-                class_name_map[serial] = self.strings[serial]
-                continue
-
-            # Fallback to class_serial placeholder
-            class_name_map[serial] = f'class_{serial}'
+            # Try serial << 14, << 13, and direct lookup
+            # Only accept strings that look like class names (contain package separator)
+            found = False
+            for shift in [14, 13, 0]:
+                sid = serial << shift
+                if sid in self.strings:
+                    candidate = self.strings[sid]
+                    # Only accept if it looks like a class name (contains '.')
+                    if candidate and '.' in candidate and len(candidate) > 6:
+                        if self._is_better_class_name(candidate, class_name_map.get(serial, '')):
+                            class_name_map[serial] = candidate
+                            found = True
+                            break
+            if not found:
+                class_name_map[serial] = f'class_{serial}'
 
         return class_name_map
 
