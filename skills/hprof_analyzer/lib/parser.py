@@ -301,12 +301,21 @@ class HPROFParser:
 
         # Strategy 1: 9-byte entry format (scan ALL chunks)
         # This is the primary format for hprof-libs object data
-        EXCLUDED_TAGS = {0x00, 0x01, 0x05, 0x3F, 0x40}  # Skip CHUNK_HEADER, STRING, GC_ROOT, filler, marker
+        EXCLUDED_TAGS = {0x00, 0x01, 0x05, 0x3F, 0x40}
+        # Filter: skip text-heavy chunks (likely string/constant definitions, not object data)
+        def _is_text_chunk(chunk_payload):
+            if len(chunk_payload) < 100:
+                return False
+            sample = chunk_payload[:200]
+            printable = sum(1 for b in sample if 32 <= b < 127)
+            return printable / len(sample) > 0.6
         for c in self.chunks:
             if c['tag'] in EXCLUDED_TAGS:
                 continue
             payload = c['payload']
             if len(payload) < 9:
+                continue
+            if _is_text_chunk(payload):
                 continue
 
             # Try 9-byte aligned parsing
@@ -680,6 +689,78 @@ class HPROFParser:
 
         return count
 
+    def parse_object_references(self) -> int:
+        """Extract field references from OBJECT_DUMP (tag=0x04) chunks.
+
+        Parses 25-byte entries with 00 40 markers at 25-byte intervals:
+        [8B header] [obj_id(2B)] [class_serial(1B)] [0x0b] [ref_class(1B)] [ref_obj_id(1B)]
+        [4B padding] [00 40 marker] [type(1B)] [value(2B)]
+
+        Builds reference graph: obj_id -> ref_obj_id
+        """
+        import struct as _struct
+        count = 0
+
+        for c in self.chunks:
+            if c['tag'] != 0x04:
+                continue
+
+            payload = c['payload']
+            if len(payload) < 25:
+                continue
+
+            # Find 00 40 markers at 25-byte intervals
+            marker_positions = []
+            p = 0
+            while True:
+                idx = payload.find(b'\x00\x40', p)
+                if idx == -1:
+                    break
+                marker_positions.append(idx)
+                p = idx + 1
+
+            if len(marker_positions) < 2:
+                continue
+
+            # Verify 25-byte interval
+            intervals = [marker_positions[i+1] - marker_positions[i]
+                        for i in range(min(5, len(marker_positions)-1))]
+            from collections import Counter
+            interval_counts = Counter(intervals)
+            most_common = interval_counts.most_common(1)[0][0]
+
+            if most_common < 15 or most_common > 40:
+                continue
+
+            # Parse entries: pre-marker portion is (most_common - 5) bytes before marker
+            pre_marker_len = most_common - 5  # 25 - 5 = 20 bytes pre-marker
+            for i, marker_pos in enumerate(marker_positions):
+                entry_start = marker_pos - pre_marker_len
+                if entry_start < 0:
+                    continue
+
+                # Extract fields from 25-byte entry:
+                # [8B header] [obj_id(2B BE)] [class_serial(1B)] [0x0b] [ref_class(1B)] [ref_obj_id(1B)] [4B pad] [00 40] [type(1B)] [value(2B)]
+                if entry_start + 16 <= len(payload):
+                    # obj_id is 2-byte BIG-ENDIAN at offset 10-11
+                    obj_id = _struct.unpack_from('>H', payload, entry_start + 10)[0]
+                    class_serial = payload[entry_start + 12]
+                    ref_class = payload[entry_start + 14]
+                    ref_obj_id = payload[entry_start + 15]
+
+                    if obj_id > 0 and ref_obj_id > 0:
+                        if not hasattr(self, 'object_refs'):
+                            self.object_refs = []
+                        self.object_refs.append({
+                            'obj_id': obj_id,
+                            'class_serial': class_serial,
+                            'ref_obj_id': ref_obj_id,
+                            'ref_class_serial': ref_class,
+                        })
+                        count += 1
+
+        return count
+
     def parse_static_fields(self) -> int:
         """Extract static field references from 0x1400 and 0x6F00 chunks.
 
@@ -913,6 +994,7 @@ class HPROFParser:
         thread_count = self.parse_threads()
         frame_count = self.parse_frames()
         sf_count = self.parse_static_fields()
+        ref_count = self.parse_object_references()
 
         # Build class name map
         class_name_map = self.build_class_name_map()
@@ -925,6 +1007,7 @@ class HPROFParser:
             'threads': self.threads,
             'frames': self.frames,
             'static_field_refs': self.static_field_refs,
+            'object_refs': getattr(self, 'object_refs', []),
             'class_name_map': class_name_map,
             'stats': {
                 'chunks': len(self.chunks),
@@ -935,6 +1018,7 @@ class HPROFParser:
                 'threads': thread_count,
                 'frames': frame_count,
                 'static_fields': sf_count,
+                'object_refs': ref_count,
             }
         }
 

@@ -226,6 +226,24 @@ def convert_hprof_to_parquet(
     writer.write_frames(parser.frames, class_name_map)
     writer.write_static_fields(parser.static_field_refs, class_name_map)
 
+    # Write object references (field reference chain)
+    if hasattr(parser, 'object_refs') and parser.object_refs:
+        refs_table = []
+        for ref in parser.object_refs:
+            refs_table.append({
+                'obj_id': ref['obj_id'],
+                'class_serial': ref['class_serial'],
+                'class_name': class_name_map.get(ref['class_serial'], 'class_' + str(ref['class_serial'])),
+                'ref_obj_id': ref['ref_obj_id'],
+                'ref_class_serial': ref['ref_class_serial'],
+                'ref_class_name': class_name_map.get(ref['ref_class_serial'], 'class_' + str(ref['ref_class_serial'])),
+            })
+        if refs_table:
+            import pyarrow as pa
+            table = pa.Table.from_pylist(refs_table)
+            filepath = os.path.join(output_dir, '_object_references.parquet')
+            pq.write_table(table, filepath, compression='snappy')
+
     # Count records
     counts = {
         'objects': len(parser.object_list),
@@ -234,6 +252,7 @@ def convert_hprof_to_parquet(
         'threads': len(parser.threads),
         'frames': len(parser.frames),
         'strings': len(parser.strings),
+        'object_refs': len(getattr(parser, 'object_refs', [])),
     }
 
     return counts

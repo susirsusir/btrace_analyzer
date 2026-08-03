@@ -223,9 +223,22 @@ def run_duckdb_analysis(parquet_dir: str) -> Dict[str, Any]:
     else:
         result['threads'] = []
 
+    # ── A6: Object reference chain ──
+    ref_file = os.path.join(parquet_dir, '_object_references.parquet')
+    if os.path.exists(ref_file):
+        result['has_object_refs'] = True
+        ref_rows = con.execute(f"SELECT class_name, ref_class_name, COUNT(*) as ref_count FROM read_parquet('{ref_file}') GROUP BY class_name, ref_class_name ORDER BY ref_count DESC LIMIT 30").fetchall()
+        result['ref_chain'] = [{'from': r[0], 'to': r[1], 'count': r[2]} for r in ref_rows]
+        result['total_refs'] = con.execute(f"SELECT COUNT(*) FROM read_parquet('{ref_file}')").fetchone()[0]
+    else:
+        result['has_object_refs'] = False
+        result['ref_chain'] = []
+        result['total_refs'] = 0
+
     frames_file = os.path.join(parquet_dir, '_frames.parquet')
     if os.path.exists(frames_file):
         frames = con.execute(f"SELECT * FROM read_parquet('{frames_file}') LIMIT 50").fetchall()
+
         result['frames'] = [
             {'frame_id': r[0], 'class_serial': r[1], 'class_name': r[2],
              'method_index': r[3], 'line_number': r[4], 'type_code': r[5]}
