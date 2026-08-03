@@ -194,7 +194,8 @@ class ParquetWriter:
 def convert_hprof_to_parquet(
     hprof_path: str,
     output_dir: str,
-    shard_size: int = 50000
+    shard_size: int = 50000,
+    std_class_names: dict = None
 ) -> Dict[str, int]:
     """
     Main entry point: parse HPROF and write Parquet files.
@@ -214,6 +215,15 @@ def convert_hprof_to_parquet(
 
     # Use parser's class name map (built from CHUNK_HEADER + string tags + heuristic lookup)
     class_name_map = parser.build_class_name_map()
+    
+    # P0: Override with standard HPROF class names if available
+    if std_class_names:
+        # Standard parser has 21K class names with full package paths
+        # Override only when the standard name is better (has '.')
+        for serial, name in std_class_names.items():
+            old = class_name_map.get(serial, '')
+            if '.' in name and (not old or '.' not in old or old.startswith('class_')):
+                class_name_map[serial] = name
 
     # Initialize writer
     writer = ParquetWriter(output_dir, shard_size)

@@ -34,8 +34,24 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
     """Convert HPROF to Parquet. Always performs conversion to ensure fresh data."""
     print(f"Converting HPROF to Parquet...")
 
+    # P0: If hprof-libs format, convert to standard and extract class names
+    from .lib.standard_parser import is_hprof_libs, convert_to_standard, StandardHprofParser
+    std_class_names = {}
+    if is_hprof_libs(hprof_path):
+        import os, tempfile
+        std_path = os.path.join(output_dir, '_standard.hprof')
+        print(f"  Detected hprof-libs format, running hprof-conv...")
+        if convert_to_standard(hprof_path, std_path):
+            std_parser = StandardHprofParser(std_path)
+            std_parser.parse_strings_and_classes()
+            std_class_names = std_parser.class_names
+            print(f"  ✓ Standard parser: {len(std_class_names):,} class names extracted")
+            # Clean up standard hprof file
+            try: os.remove(std_path)
+            except: pass
+
     # Write Parquet using the library writer (includes parsing internally)
-    counts = convert_hprof_to_parquet(hprof_path, output_dir)
+    counts = convert_hprof_to_parquet(hprof_path, output_dir, std_class_names=std_class_names)
 
     print(f"✓ Conversion complete. Parquet files written to {output_dir}")
     print(f"  Parsed: {counts['objects']} objects, {counts['classes']} classes, {counts['strings']} strings")
@@ -64,6 +80,7 @@ def run_duckdb_analysis(parquet_dir: str) -> Dict[str, Any]:
 
     con = duckdb.connect()
     result = {'parquet_dir': parquet_dir}
+    result['std_class_count'] = 0  # Will be set if standard parser was used
 
     # ── A1: Object type distribution ──────────────────────────────────
     obj_pattern = os.path.join(parquet_dir, '_object_index_chunk*.parquet')
