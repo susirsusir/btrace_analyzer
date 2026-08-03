@@ -41,7 +41,7 @@ class HPROFParser:
             stated_size = struct.unpack_from('<I', f.read(4), 0)[0]
         if stated_size > 2000:
             # hprof-libs format: chunks start at fixed offset 0x80
-            return 0x80
+            return 16 + stated_size  # hprof-libs: skip extended header
         else:
             # standard hprof-heap format
             return 16 + stated_size
@@ -583,24 +583,13 @@ class HPROFParser:
                                     }
                                     count += 1
 
-        # Resolve thread names from STRING_DUMP table
-        # Thread names are typically short identifiers like "main", "Binder-1", etc.
-        # Only accept strings that look like thread names (not random field/constant names)
-        for tid, info in self.threads.items():
-            if not info.get('name'):
-                for shift in [14, 13, 0]:
-                    sid = tid << shift
-                    if sid in self.strings:
-                        candidate = self.strings[sid]
-                        # Only accept short names (< 50 chars) without underscores
-                        # or common thread name patterns (main, binder, gc, etc.)
-                        if candidate and len(candidate) < 50 and '_' not in candidate:
-                            lower_cand = candidate.lower()
-                            if any(kw in lower_cand for kw in ['main', 'binder', 'gc', 'thread', 'queue', 'handler', 'pool', 'worker', 'render', 'finalizer', 'watchdog', 'process']):
-                                info['name'] = candidate
-                                break
+        # Thread name resolution from STRING_DUMP is unreliable
+        # (serial-based lookup produces false positives with field/constant names)
+        # Thread names in hprof-libs are not easily resolvable without
+        # additional format reverse engineering. Leave names empty for now.
 
         return count
+
 
     def parse_frames(self) -> int:
         """Extract stack frame information from STACK_FRAME chunks (tag 0x0002).
@@ -698,58 +687,76 @@ class HPROFParser:
     def parse_static_fields(self) -> int:
         """Extract static field references from 0x1400 and 0x6F00 chunks.
 
-        These chunks contain class_serial -> object_id references representing
-        static fields that hold references to other objects.
-
-        Each entry format (marker-based):
-          [marker 00 40 00 class_serial(1B)] [entry_data]
-          entry_data[0:4] = obj_id (LE uint32)
-          entry_data[4]   = type_code (field type)
+        These chunks contain class_serial -> object_id references.
+        Supports:
+        1. Marker-based (00 40 00): entries with obj_id + type_code
+        2. 6FE55848 pattern: 20-byte records with class_serial + obj_id
         """
         count = 0
-        source_tags = {0x1400, 0x6F00}
+        source_tags = {0x14, 0x6F}  # 1-byte tags (marker-based scanner)
 
         for c in self.chunks:
             if c['tag'] not in source_tags:
                 continue
 
             payload = c['payload']
-            if b'\x00\x40\x00' not in payload:
-                continue
 
-            p = 0
-            while True:
-                pos = payload.find(b'\x00\x40\x00', p)
-                if pos == -1:
-                    break
-                # Safety check: need at least 4 bytes after marker for class_serial
-                if pos + 4 > len(payload):
-                    break
-                class_serial = payload[pos + 3]
-                next_pos = payload.find(b'\x00\x40\x00', pos + 1)
-                if next_pos == -1:
-                    next_pos = len(payload)
-                entry_data = payload[pos + 4:next_pos]
+            # Strategy 1: Marker-based (00 40 00)
+            if b'\x00\x40\x00' in payload:
+                p = 0
+                while True:
+                    pos = payload.find(b'\x00\x40\x00', p)
+                    if pos == -1:
+                        break
+                    if pos + 4 > len(payload):
+                        break
+                    class_serial = payload[pos + 3]
+                    next_pos = payload.find(b'\x00\x40\x00', pos + 1)
+                    if next_pos == -1:
+                        next_pos = len(payload)
+                    entry_data = payload[pos + 4:next_pos]
 
-                if len(entry_data) >= 5 and 0 < class_serial < 256:
-                    obj_id = struct.unpack_from('<I', entry_data, 0)[0]
-                    type_code = entry_data[4]
+                    if len(entry_data) >= 5:
+                        obj_id = struct.unpack_from('<I', entry_data, 0)[0]
+                        type_code = entry_data[4]
 
-                    if obj_id > 0:
-                        self.static_field_refs.append({
-                            'class_serial': class_serial,
-                            'obj_id': obj_id,
-                            'type_code': type_code,
-                        })
-                        count += 1
+                        if obj_id > 0:
+                            self.static_field_refs.append({
+                                'class_serial': class_serial,
+                                'obj_id': obj_id,
+                                'type_code': type_code,
+                            })
+                            count += 1
 
-                p = pos + 1
+                    p = pos + 1
+
+            # Strategy 2: 6FE55848 pattern records
+            pattern = b'\x6f\xe5\x58\x48'
+            if pattern in payload:
+                positions = []
+                p = 0
+                while True:
+                    idx = payload.find(pattern, p)
+                    if idx == -1:
+                        break
+                    positions.append(idx)
+                    p = idx + 1
+
+                for ppos in positions:
+                    if ppos + 20 <= len(payload):
+                        flag = struct.unpack_from('<I', payload, ppos + 4)[0]
+                        if flag == 0x14000000:
+                            obj_id = struct.unpack_from('<I', payload, ppos + 8)[0]
+                            class_serial = payload[ppos + 12] if ppos + 12 < len(payload) else 0
+                            if obj_id > 0:
+                                self.static_field_refs.append({
+                                    'class_serial': class_serial,
+                                    'obj_id': obj_id,
+                                    'type_code': 0,
+                                })
+                                count += 1
 
         return count
-
-    # =========================================================================
-    # Class name resolution (enhanced)
-    # =========================================================================
 
     def build_class_name_map(self) -> Dict[int, str]:
         """Build class_serial to class_name mapping.
@@ -795,7 +802,7 @@ class HPROFParser:
                 p = sep + 13
 
         # Strategy 2: Parse string tags (0x4000, 0x2100, 0x1000) for additional class names
-        string_tags = [0x4000, 0x2100, 0x1000]
+        string_tags = [0x40, 0x21, 0x10]  # 1-byte tags
         for tag in string_tags:
             tag_chunks = [c for c in self.chunks if c['tag'] == tag]
             for c in tag_chunks:

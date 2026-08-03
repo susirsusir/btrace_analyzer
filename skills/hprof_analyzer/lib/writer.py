@@ -8,6 +8,23 @@ import os
 from datetime import datetime
 from collections import defaultdict
 
+def _estimate_shallow_size(class_name: str) -> int:
+    """Estimate shallow size based on class name heuristics."""
+    if not class_name or class_name.startswith('class_'):
+        return 24
+    if '[]' in class_name or class_name.endswith('[]'):
+        return 40
+    if '$' in class_name.split('.')[-1]:
+        return 16
+    if class_name.startswith('android.') or class_name.startswith('com.android.'):
+        return 32
+    if class_name.startswith('java.'):
+        return 24
+    if class_name.startswith('kotlin.'):
+        return 16
+    return 24
+
+
 
 class ParquetWriter:
     """Writes HPROF-derived tables to Parquet files in chunks."""
@@ -36,7 +53,7 @@ class ParquetWriter:
                 'obj_id': obj['obj_id'],
                 'class_id': class_id,
                 'class_name': class_name,
-                'shallow_size': 24,
+                'shallow_size': _estimate_shallow_size(class_names.get(class_id, f'class_{class_id}')),
             }
             current_shard.append(row)
 
