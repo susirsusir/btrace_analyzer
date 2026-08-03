@@ -179,11 +179,11 @@ live_gift_info_hierarchy = con.execute(f"""
 6. **风险评级** — P0-P3 严重性评估
 7. **下一步行动** — 可操作的排查步骤
 
-**输出文件**: `hprof_analysis/<hprof文件名_无扩展名>_report.md`
+**输出文件**: `hprof_analysis/<hprof文件名_无扩展名>/<hprof文件名_无扩展名>_report.md`
 
 示例：
-- 输入：`dump.hprof` → 输出：`hprof_analysis/dump_report.md`
-- 输入：`taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` → 输出：`hprof_analysis/taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`
+- 输入：`dump.hprof` → 输出：`hprof_analysis/dump/dump_report.md`
+- 输入：`taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` → 输出：`hprof_analysis/taqu_android_client_logfile_401_1783731893047_1_1_342013740/taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`
 
 ---
 
