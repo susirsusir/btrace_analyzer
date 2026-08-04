@@ -191,6 +191,119 @@ class ParquetWriter:
         return len(rows)
 
 
+def write_standard_parser_data(parser, output_dir: str) -> dict:
+    """Write StandardHprofParser output to Parquet files.
+
+    Produces HeapDumpStarDiver-compatible schema:
+    - Per-class files: ClassName_classobjid.parquet (with obj_id column)
+    - _gc_roots.parquet
+    - _static_fields.parquet
+    - _object_arrays.parquet
+    - _primitive_arrays_*.parquet
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import os
+    from collections import defaultdict
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # GC Root kind name mapping (to match HeapDumpStarDiver output)
+    kind_map = {
+        'UNKNOWN': 'Unknown', 'THREAD_OBJ': 'ThreadObj',
+        'JNI_GLOBAL': 'JniGlobal', 'JNI_LOCAL': 'JniLocal',
+        'JAVA_STACK': 'JavaStackFrame', 'NATIVE_STACK': 'NativeStack',
+        'SYSTEM_CLASS': 'SystemClass', 'THREAD_BLOCK': 'ThreadBlock',
+        'BUSY_MONITOR': 'BusyMonitor',
+    }
+
+    # 1. Write per-class files
+    objects_by_class = defaultdict(list)
+    class_obj_ids = {}
+    for obj in parser.objects:
+        cn = obj.get('class_name') or f'class_{obj.get("class_serial", 0)}'
+        objects_by_class[cn].append(obj)
+        if cn not in class_obj_ids:
+            class_obj_ids[cn] = obj.get('class_obj_id', 0)
+
+    class_count = 0
+    for cn, objs in objects_by_class.items():
+        rows = [{'obj_id': o['obj_id']} for o in objs]
+        table = pa.Table.from_pylist(rows)
+        coid = class_obj_ids.get(cn, 0)
+        # Clean class name for filename
+        safe_cn = cn.replace('/', '_').replace('$', '_')
+        filename = f"{safe_cn}_{coid}.parquet"
+        filepath = os.path.join(output_dir, filename)
+        pq.write_table(table, filepath, compression='snappy')
+        class_count += 1
+
+    # 2. Write _gc_roots.parquet
+    if parser.gc_roots:
+        root_rows = []
+        for r in parser.gc_roots:
+            root_rows.append({
+                'root_type': kind_map.get(r.get('kind', 'UNKNOWN'), 'Unknown'),
+                'obj_id': r.get('object_id', 0),
+                'thread_serial': 0,
+                'frame_index': 0,
+            })
+        table = pa.Table.from_pylist(root_rows)
+        pq.write_table(table, os.path.join(output_dir, '_gc_roots.parquet'), compression='snappy')
+
+    # 3. Write _static_fields.parquet
+    if parser.static_fields:
+        sf_rows = []
+        for sf in parser.static_fields:
+            sf_rows.append({
+                'class_obj_id': 0,
+                'class_name': sf.get('class_name', ''),
+                'field_name': sf.get('field_name', ''),
+                'field_type': str(sf.get('field_type', 0)),
+                'primitive_value': '',
+                'ref_id': sf.get('ref_id', 0),
+                'ref_type': '',
+            })
+        table = pa.Table.from_pylist(sf_rows)
+        pq.write_table(table, os.path.join(output_dir, '_static_fields.parquet'), compression='snappy')
+
+    # 4. Write _object_arrays.parquet
+    if parser.object_arrays:
+        oa_rows = []
+        for oa in parser.object_arrays:
+            oa_rows.append({
+                'obj_id': oa.get('obj_id', 0),
+                'class_name': oa.get('class_name', '[object'),
+                'elements': oa.get('elements', []),
+            })
+        table = pa.Table.from_pylist(oa_rows)
+        pq.write_table(table, os.path.join(output_dir, '_object_arrays.parquet'), compression='snappy')
+
+    # 5. Write _primitive_arrays_*.parquet (group by type)
+    type_suffix = {4: 'byte', 5: 'char', 6: 'float', 7: 'double', 8: 'byte', 9: 'short', 10: 'int', 11: 'long'}
+    prim_by_type = defaultdict(list)
+    for pa_item in parser.primitive_arrays:
+        prim_by_type[pa_item['type']].append(pa_item)
+
+    for ptype, items in prim_by_type.items():
+        suffix = type_suffix.get(ptype, 'byte')
+        rows = [{'obj_id': item['obj_id']} for item in items]
+        table = pa.Table.from_pylist(rows)
+        pq.write_table(table, os.path.join(output_dir, f'_primitive_arrays_{suffix}.parquet'), compression='snappy')
+
+    counts = {
+        'objects': len(parser.objects),
+        'classes': class_count,
+        'gc_roots': len(parser.gc_roots),
+        'static_fields': len(parser.static_fields),
+        'object_arrays': len(parser.object_arrays),
+        'primitive_arrays': len(parser.primitive_arrays),
+        'strings': len(parser.strings),
+        'object_refs': 0,
+    }
+    return counts
+
+
 def convert_hprof_to_parquet(
     hprof_path: str,
     output_dir: str,

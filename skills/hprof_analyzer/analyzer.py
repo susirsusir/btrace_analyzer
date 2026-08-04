@@ -35,9 +35,7 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
     import os, subprocess, glob
     print(f"Converting HPROF to Parquet...")
 
-    # P0: If hprof-libs format, convert to standard and extract class names
     from .lib.standard_parser import is_hprof_libs, convert_to_standard, StandardHprofParser
-    std_class_names = {}
 
     if is_hprof_libs(hprof_path):
         # 输出到 hprof_analysis/xxx/standard/xxx.standard.hprof
@@ -47,18 +45,10 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
         std_path = os.path.join(std_dir, hprof_basename)
         print(f"  Detected hprof-libs format, running hprof-conv...")
         if convert_to_standard(hprof_path, std_path):
-            std_parser = StandardHprofParser(std_path)
-            std_parser.parse_strings_and_classes()
-            std_class_names = std_parser.class_names
-            print(f"  \u2713 Standard parser: {len(std_class_names):,} class names extracted")
-
-            # 尝试使用 HeapDumpStarDiver 完整解析
+            # 尝试使用 HeapDumpStarDiver (快, 6s)
             star_diver = os.path.join(os.path.dirname(__file__), 'references', 'HeapDumpStarDiver')
-            print(f'  HeapDumpStarDiver path: {star_diver}')
-            print(f'  Exists: {os.path.isfile(star_diver)}, Executable: {os.access(star_diver, os.X_OK) if os.path.isfile(star_diver) else False}')
             if os.path.isfile(star_diver) and os.access(star_diver, os.X_OK):
-                print(f"  Using HeapDumpStarDiver for complete heap parsing...")
-                # 清理旧 parquet
+                print(f"  Using HeapDumpStarDiver (fast mode)...")
                 for f in glob.glob(os.path.join(output_dir, '*.parquet')):
                     os.remove(f)
                 result = subprocess.run(
@@ -66,49 +56,47 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
                     cwd=output_dir, capture_output=True, text=True, timeout=120
                 )
                 if result.returncode == 0:
-                    # HeapDumpStarDiver 创建 parquet/ 子目录，把文件移到 output_dir
                     inner = os.path.join(output_dir, 'parquet')
                     if os.path.isdir(inner):
                         for f in os.listdir(inner):
-                            src = os.path.join(inner, f)
-                            dst = os.path.join(output_dir, f)
-                            os.rename(src, dst)
+                            os.rename(os.path.join(inner, f), os.path.join(output_dir, f))
                         os.rmdir(inner)
-                    # 统计
-                    all_files = glob.glob(os.path.join(output_dir, '*.parquet'))
-                    class_files = [f for f in all_files if not os.path.basename(f).startswith('_')]
-                    # 用 DuckDB 统计总对象数
-                    import duckdb as _ddb
-                    _con = _ddb.connect()
-                    _total = 0
-                    for _f in class_files:
-                        try:
-                            _c = _con.execute(f"SELECT COUNT(*) FROM read_parquet('{_f}')").fetchone()[0]
-                            _total += _c
-                        except: pass
-                    _con.close()
-                    counts = {
-                        'objects': _total,
-                        'classes': len(class_files),
-                        'gc_roots': 0,
-                        'strings': 0,
-                        'object_refs': 0,
-                        'star_diver': True,
-                    }
-                    print(f"  \u2713 HeapDumpStarDiver: {len(class_files):,} class files")
-                    return counts
+                    class_files = [f for f in glob.glob(os.path.join(output_dir, '*.parquet'))
+                                   if not os.path.basename(f).startswith('_')]
+                    print(f"  \u2713 HeapDumpStarDiver: {len(class_files)} class files")
+                    return {'objects': 0, 'classes': len(class_files), 'gc_roots': 0,
+                            'strings': 0, 'object_refs': 0, 'star_diver': True}
                 else:
-                    print(f"  \u26a0 HeapDumpStarDiver failed, falling back to Python parser")
-            else:
-                print(f"  \u26a0 HeapDumpStarDiver not found, using Python parser")
+                    print(f"  \u26a0 HeapDumpStarDiver failed, using Python parser")
 
-    # Write Parquet using the library writer (includes parsing internally)
-    counts = convert_hprof_to_parquet(hprof_path, output_dir, std_class_names=std_class_names)
+            # 使用 Python StandardHprofParser (慢, 9min, 但纯 Python)
+            print(f"  Parsing with StandardHprofParser (Python mode)...")
+            std_parser = StandardHprofParser(std_path)
+            std_parser.parse_strings_and_classes()
+            print(f"  Strings: {len(std_parser.strings):,}, Classes: {len(std_parser.class_names):,}")
+            std_parser.parse_heap_dump()
+            print(f"  Objects: {len(std_parser.objects):,}, GC Roots: {len(std_parser.gc_roots):,}")
 
-    print(f"\u2713 Conversion complete. Parquet files written to {output_dir}")
-    print(f"  Parsed: {counts['objects']} objects, {counts['classes']} classes, {counts['strings']} strings")
-
-    return counts
+            # 写入 Parquet
+            from .lib.writer import write_standard_parser_data
+            for f in glob.glob(os.path.join(output_dir, '*.parquet')):
+                os.remove(f)
+            counts = write_standard_parser_data(std_parser, output_dir)
+            print(f"  \u2713 Written {counts['classes']} class files, {counts['objects']:,} objects")
+            counts['star_diver'] = False
+            return counts
+    else:
+        # 标准 HPROF 格式, 直接解析
+        from .lib.standard_parser import StandardHprofParser
+        std_parser = StandardHprofParser(hprof_path)
+        std_parser.parse_strings_and_classes()
+        std_parser.parse_heap_dump()
+        from .lib.writer import write_standard_parser_data
+        for f in glob.glob(os.path.join(output_dir, '*.parquet')):
+            os.remove(f)
+        counts = write_standard_parser_data(std_parser, output_dir)
+        counts['star_diver'] = False
+        return counts
 
 
 def get_timestamp_suffix() -> str:

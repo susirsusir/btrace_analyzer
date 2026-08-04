@@ -7,15 +7,17 @@ description: 分析 Android hprof 堆转储文件以检测内存泄漏、分析�
 
 本技能分析 Android `.hprof` 堆转储文件，检测内存泄漏、分析对象分布并生成全面的内存报告。支持 **标准 hprof-heap 格式**和 **Android hprof-libs 格式**（Android 7.0+，现代 Android 设备默认格式）。
 
-> **参考**: `android-hprof-analyzer` 技能使用 Parquet/DuckDB 方案，可作为格式逆向和报告生成的参考，但不要照抄其 MCP 工具调用方式。本技能采用纯 Python 直接解析 hprof 二进制格式。
-
 ## 分析架构
 
-本技能采用统一的 Parquet/DuckDB 分析路径：
+本技能采用 hprof-conv + 标准 HPROF 解析 + DuckDB 分析的统一路径：
 
-1. **转换**：将 `.hprof` 文件通过 Python 解析器转换为 Parquet 结构化数据
-2. **分析**：使用 DuckDB 查询 Parquet 数据进行内存分析
-3. **报告**：生成单一综合报告
+1. **转换**：如果检测到 Android hprof-libs 格式，使用 `hprof-conv` 转换为标准 JVM HPROF 格式
+2. **解析**：使用 `StandardHprofParser` 解析标准 HPROF，提取全部对象、GC Root、静态字段、数组数据
+3. **写入**：通过 `write_standard_parser_data` 按类分文件写入 Parquet
+4. **分析**：使用 DuckDB 查询 Parquet 数据进行内存分析
+5. **报告**：生成单一综合报告
+
+> 如果 `references/HeapDumpStarDiver` 二进制可用，将作为加速器使用（6 秒 vs 9 分钟），输出格式完全一致。
 
 无论项目目录中是否已有 Parquet 数据，都会重新执行转换，确保分析基于最新数据。
 
@@ -23,175 +25,143 @@ description: 分析 Android hprof 堆转储文件以检测内存泄漏、分析�
 
 - 一个 `.hprof` 文件（本地文件，位于 `<project_root>/hprof/<hprof_name>.hprof`）
 
+## 输出目录结构
+
+```
+<project_root>/hprof_analysis/<hprof_name>/
+├── raw/                    — 原始 hprof 副本
+├── standard/              — hprof-conv 转换的标准 HPROF
+├── parquet/                — Parquet 结构化数据（按类分文件）
+│   ├── _gc_roots.parquet
+│   ├── _static_fields.parquet
+│   ├── _object_arrays.parquet
+│   ├── _primitive_arrays_byte.parquet
+│   ├── java.lang.String_<id>.parquet
+│   ├── com.xmhaibao.urd.bean.ResourceItemBean_<id>.parquet
+│   └── ... (每类一个文件)
+└── <hprof_name>_report.md  — 分析报告
+```
+
 ---
 
-## Parquet/DuckDB 分析
+## 解析流程
 
-### 前置步骤：转换 HPROF 为 Parquet
+### 步骤 1: 格式检测与转换
 
-使用 `HPROFParser` 解析原始 hprof 文件，通过 `convert_hprof_to_parquet` 生成结构化 Parquet 数据。
+```python
+from skills.hprof_analyzer.lib.standard_parser import is_hprof_libs, convert_to_standard
 
-**解析器支持三种 chunk 格式**：
-- **Marker-based** (`00 40 00 XX`)：小 chunk 的标准格式
-- **Dense packed 89_6f**：大 chunk 紧凑格式，5 字节记录
-- **Dense packed 89_14_cb**：大 chunk 紧凑格式，6 字节记录
+if is_hprof_libs(hprof_path):
+    # Android hprof-libs 格式 → 用 hprof-conv 转换
+    convert_to_standard(hprof_path, standard_hprof_path)
+```
 
-转换后的文件保存在 `<project_root>/hprof_analysis/<basename>/parquet/` 目录下。
+### 步骤 2: 解析标准 HPROF
 
-### 分析步骤
+`StandardHprofParser` 解析标准 HPROF 格式，提取：
 
-使用 DuckDB 查询 Parquet 文件生成结构化分析数据。所有 Python 代码写入 `/tmp/hprof_analysis/`，不要在工作区创建临时文件。
+- **STRING_DUMP (0x01)**: 106K+ 字符串
+- **LOAD_CLASS (0x02)**: 21K+ 类定义（类名映射）
+- **HEAP_DUMP (0x0C/0x0E)**: 子记录解析
 
-#### A1. 查询对象类型分布
+HEAP_DUMP 子记录 tag 映射（基于 jvm-hprof 源码）：
+
+| Tag | 类型 | 格式 |
+|-----|------|------|
+| 0xFF | GcRootUnknown | obj_id(id_size) |
+| 0x08 | GcRootThreadObj | obj_id + thread_serial(u32) + stack_trace(u32) |
+| 0x01 | GcRootJniGlobal | obj_id + ref_id(id_size) |
+| 0x02 | GcRootJniLocalRef | obj_id + thread_serial(u32) + frame_index(opt u32) |
+| 0x03 | GcRootJavaStackFrame | obj_id + thread_serial(u32) + frame_index(opt u32) |
+| 0x04 | GcRootNativeStack | obj_id + thread_serial(u32) |
+| 0x05 | GcRootSystemClass | obj_id(id_size) |
+| 0x06 | GcRootThreadBlock | obj_id + thread_serial(u32) |
+| 0x07 | GcRootBusyMonitor | obj_id(id_size) |
+| 0x20 | Class | obj_id + stack_trace + super + loader + ... + static_fields + instance_fields |
+| 0x21 | Instance | obj_id + stack_trace(u32) + class_obj_id + num_bytes(u32) + field_data |
+| 0x22 | ObjectArray | obj_id + stack_trace(u32) + num_elements(u32) + array_class_id + elements |
+| 0x23 | PrimitiveArray | obj_id + stack_trace(u32) + num_elements(u32) + type(u8) + data |
+
+> **注意**: tag 0xFF 是 GcRootUnknown，不是 HEAP_DUMP_END！不要在遇到 0xFF 时停止解析。
+
+HPROF 类型码大小映射：
+
+| 类型码 | 类型 | 大小(字节) |
+|--------|------|-----------|
+| 2 | object | id_size (通常 4) |
+| 4 | boolean | 1 |
+| 5 | char | 2 |
+| 6 | float | 4 |
+| 7 | double | 8 |
+| 8 | byte | 1 |
+| 9 | short | 2 |
+| 10 | int | 4 |
+| 11 | long | 8 |
+
+### 步骤 3: Parquet 输出
+
+`write_standard_parser_data()` 按类分文件写入 Parquet，兼容 HeapDumpStarDiver schema：
+
+- 每个类一个 `.parquet` 文件（文件名: `ClassName_classObjId.parquet`）
+- `_gc_roots.parquet`: root_type, obj_id, thread_serial, frame_index
+- `_static_fields.parquet`: class_name, field_name, field_type, ref_id
+- `_object_arrays.parquet`: obj_id, class_name, elements
+- `_primitive_arrays_*.parquet`: obj_id（按类型分文件）
+
+### 步骤 4: DuckDB 分析
 
 ```python
 import duckdb
 
 con = duckdb.connect()
-parquet_dir = "<project_dir>/parquet"
+parquet_dir = "<project_root>/hprof_analysis/<hprof_name>/parquet"
 
-# 总对象数
-total_objects = con.execute(f"""
-    SELECT COUNT(*) FROM read_parquet('{parquet_dir}/_object_index_chunk*.parquet')
-""").fetchone()[0]
+# 按类统计对象数（读所有非 _ 前缀的 parquet 文件）
+class_files = [f for f in glob.glob(f'{parquet_dir}/*.parquet') if not basename(f).startswith('_')]
+for f in class_files:
+    cn = basename(f).rsplit('_', 1)[0]
+    cnt = con.execute(f"SELECT COUNT(*) FROM read_parquet('{f}')").fetchone()[0]
 
-# Top 50 类按实例数排序
-top_classes = con.execute(f"""
-    SELECT type_name, COUNT(*) as instance_count
-    FROM read_parquet('{parquet_dir}/_object_index_chunk*.parquet')
-    GROUP BY type_name
-    ORDER BY instance_count DESC
-    LIMIT 50
-""").fetchdf()
+# GC Root 分布
+gc_dist = con.execute(f"""
+    SELECT root_type, COUNT(*) FROM read_parquet('{parquet_dir}/_gc_roots.parquet')
+    GROUP BY root_type ORDER BY COUNT(*) DESC
+""").fetchall()
 
-# 包级别分布
-package_dist = con.execute(f"""
-    SELECT 
-        CASE 
-            WHEN type_name LIKE 'com.taqu.%' THEN 'com.taqu.*'
-            WHEN type_name LIKE 'com.xmhaihao.%' THEN 'com.xmhaihao.*'
-            WHEN type_name LIKE 'hb.%' THEN 'hb.*'
-            WHEN type_name LIKE 'androidx.%' THEN 'androidx.*'
-            WHEN type_name LIKE 'android.%' THEN 'android.*'
-            WHEN type_name LIKE 'java.%' THEN 'java.*'
-            ELSE 'other'
-        END as package_group,
-        COUNT(*) as object_count
-    FROM read_parquet('{parquet_dir}/_object_index_chunk*.parquet')
-    GROUP BY package_group
-    ORDER BY object_count DESC
-    LIMIT 20
-""").fetchdf()
+# 静态字段持有者
+sf_holders = con.execute(f"""
+    SELECT class_name, COUNT(*) FROM read_parquet('{parquet_dir}/_static_fields.parquet')
+    WHERE ref_id > 0 GROUP BY class_name ORDER BY COUNT(*) DESC LIMIT 50
+""").fetchall()
 ```
-
-#### A2. 查询 GC Root 分布
-
-```python
-# GC Root 类型分布
-gc_root_dist = con.execute(f"""
-    SELECT root_type, COUNT(*) as count
-    FROM read_parquet('{parquet_dir}/_gc_roots_chunk*.parquet')
-    GROUP BY root_type
-    ORDER BY count DESC
-""").fetchdf()
-
-# JavaStackFrame 持有的 Top 类
-java_stack_holders = con.execute(f"""
-    SELECT oi.type_name, COUNT(*) as held_count
-    FROM read_parquet('{parquet_dir}/_gc_roots_chunk*.parquet') gr
-    JOIN read_parquet('{parquet_dir}/_object_index_chunk*.parquet') oi ON gr.obj_id = oi.obj_id
-    WHERE gr.root_type = 'JavaStackFrame'
-    GROUP BY oi.type_name
-    ORDER BY held_count DESC
-    LIMIT 30
-""").fetchdf()
-
-# ThreadObj 持有分析
-thread_obj_analysis = con.execute(f"""
-    SELECT thread_serial, COUNT(*) as held_count
-    FROM read_parquet('{parquet_dir}/_gc_roots_chunk*.parquet')
-    WHERE root_type = 'ThreadObj'
-    GROUP BY thread_serial
-    ORDER BY held_count DESC
-    LIMIT 20
-""").fetchdf()
-```
-
-#### A3. 查询静态字段持有者（泄漏诊断核心）
-
-```python
-def find_static_field_holders(con, parquet_dir, target_type_name, limit=20):
-    """查找通过静态字段持有指定类型对象的类。"""
-    result = con.execute(f"""
-        SELECT sf.class_name, sf.field_name, sf.field_type, 
-               COUNT(*) as ref_count
-        FROM read_parquet('{parquet_dir}/_static_fields_chunk*.parquet') sf
-        JOIN read_parquet('{parquet_dir}/_object_index_chunk*.parquet') oi ON sf.ref_id = oi.obj_id
-        WHERE oi.type_name = '{target_type_name}'
-        GROUP BY sf.class_name, sf.field_name, sf.field_type
-        ORDER BY ref_count DESC
-        LIMIT {limit}
-    """).fetchdf()
-    return result
-
-# 对可疑类执行查询
-suspicious_classes = [
-    'com.xmhaibao.gift.bean.LiveGiftInfo',
-    'java.util.ArrayList',
-    'com.jakewharton.disklrucache.DiskLruCache$Entry',
-    'sun.misc.Cleaner',
-    'libcore.util.NativeAllocationRegistry$CleanerThunk',
-]
-
-for cls in suspicious_classes:
-    holders = find_static_field_holders(con, parquet_dir, cls)
-    if len(holders) > 0:
-        print(f"\n=== {cls} 的静态字段持有者 ===")
-        print(holders.to_string())
-```
-
-#### A4. 查询类层次结构
-
-```python
-live_gift_info_hierarchy = con.execute(f"""
-    SELECT class_obj_id, class_name, super_class_obj_id, super_class_name
-    FROM read_parquet('{parquet_dir}/_class_hierarchy.parquet')
-    WHERE class_name LIKE '%LiveGiftInfo%'
-    LIMIT 20
-""").fetchdf()
-```
-
-#### A5. 生成 Parquet 报告
-
-参考 [references/report-template.md](references/report-template.md) 中的完整 Markdown 报告模板。
-
-**报告必须包含**：
-1. **概要** — 整体健康状况摘要，包含关键指标表
-2. **堆分布** — Top 30 对象类型、包级别分布
-3. **GC Root 分析** — Root 类型分布、JavaStackFrame 持有 Top 类、ThreadObj 分析
-4. **内存泄漏深度分析** — 对每个可疑类给出：
-   - 实例数、估算浅层大小和持有大小
-   - GC Root 持有者（SystemClass、JavaStackFrame、Unknown）
-   - 静态字段持有者列表（类名、字段名、引用数）
-   - 泄漏模式分类（Activity 泄漏、监听器未注销、WebView 泄漏、Handler 泄漏、静态集合膨胀等）
-   - **具体修复建议**（含代码示例）
-5. **线程快照** — 活跃线程和栈快照
-6. **风险评级** — P0-P3 严重性评估
-7. **下一步行动** — 可操作的排查步骤
-
-**输出文件**: `hprof_analysis/<hprof文件名_无扩展名>/<hprof文件名_无扩展名>_report.md`
-
-示例：
-- 输入：`dump.hprof` → 输出：`hprof_analysis/dump/dump_report.md`
-- 输入：`taqu_android_client_logfile_401_1783731893047_1_1_342013740.hprof` → 输出：`hprof_analysis/taqu_android_client_logfile_401_1783731893047_1_1_342013740/taqu_android_client_logfile_401_1783731893047_1_1_342013740_report.md`
 
 ---
 
-如果 `hprof_analysis/` 目录不存在，请创建它。
+## 使用方式
+
+```python
+from skills.hprof_analyzer.analyzer import analyze_hprof
+
+result = analyze_hprof('taqu_android_client_logfile_401_1784076054085_1_1_112892590')
+```
+
+或命令行：
+
+```bash
+python skills/hprof_analyzer/tools/hprof_analyzer.py <hprof_file> --output-dir hprof_analysis/<name>
+```
+
+## 依赖
+
+- **Python 3.10+**
+- **duckdb** (`pip install duckdb`)
+- **pyarrow** (`pip install pyarrow`)
+- **hprof-conv** (Android SDK platform-tools)
+- **HeapDumpStarDiver** (可选加速器, 位于 `references/HeapDumpStarDiver`)
 
 ## 质量评估标准
 
-分析完成后，在报告末尾包含质量评分表，格式如下：
+分析完成后，在报告末尾包含质量评分表：
 
 ```markdown
 ## 质量评估（对照 quality-standards.md）
@@ -218,8 +188,6 @@ live_gift_info_hierarchy = con.execute(f"""
 ## 注意事项
 
 - **Kotlin synthetic 字段**：包含 `$` 的类名（如 `MyClass$onCreate$1`）是 Kotlin 生成的。在报告中添加 `← Kotlin synthetic` 注释。
-- **ProGuard 混淆**：单个字母方法名（如 `a()`、`b()`）加数字后缀（如 `a3()`）是 ProGuard 混淆的。不要猜测原始名称。
-- **DroidPlugin**：`msdocker.*` 或 `Ill111l` 等不寻常命名的类是 DroidPlugin 内部组件。
-- **Coroutines**：`$this$coroutineScope`、`$this$launchWhenResumed` 是 Kotlin 协程 synthetic 字段。
-- **Android hprof-libs 格式**：CLASS_DUMP、LOAD_DATA 和 SAMPLE_GC_HEAP 的 chunk 格式与标准 hprof-heap 不同。当解析产生明显无效值时（例如实例数 > 100M），尝试替代的字段偏移或格式。
-- **如果在文件中找不到期望的数据**，这可能意味着你的解析方法有误——尝试不同的方法，而不是得出结论说数据不存在。
+- **ProGuard 混淆**：单个字母方法名（如 `a()`、`b()`）加数字后缀是 ProGuard 混淆的。
+- **hprof-libs 格式**：Android 7.0+ 的 hprof-libs 格式与标准 hprof-heap 不同，必须先用 `hprof-conv` 转换。
+- **HEAP_DUMP 中的 0x3F 填充**：hprof-conv 输出的 HEAP_DUMP payload 中可能包含 0x3F 0x00 填充模式，解析时需要跳过。
