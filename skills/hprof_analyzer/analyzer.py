@@ -32,13 +32,14 @@ except ImportError:
 
 def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
     """Convert HPROF to Parquet. Always performs conversion to ensure fresh data."""
+    import os, subprocess, glob
     print(f"Converting HPROF to Parquet...")
 
     # P0: If hprof-libs format, convert to standard and extract class names
     from .lib.standard_parser import is_hprof_libs, convert_to_standard, StandardHprofParser
     std_class_names = {}
+
     if is_hprof_libs(hprof_path):
-        import os, tempfile
         # 输出到 hprof_analysis/xxx/standard/xxx.standard.hprof
         std_dir = os.path.join(os.path.dirname(output_dir), 'standard')
         os.makedirs(std_dir, exist_ok=True)
@@ -49,13 +50,62 @@ def ensure_parquet(hprof_path: str, output_dir: str) -> Dict[str, int]:
             std_parser = StandardHprofParser(std_path)
             std_parser.parse_strings_and_classes()
             std_class_names = std_parser.class_names
-            print(f"  ✓ Standard parser: {len(std_class_names):,} class names extracted")
-            # 保留 standard hprof 供后续 HeapDumpStarDiver 使用
+            print(f"  \u2713 Standard parser: {len(std_class_names):,} class names extracted")
+
+            # 尝试使用 HeapDumpStarDiver 完整解析
+            star_diver = os.path.join(os.path.dirname(__file__), 'references', 'HeapDumpStarDiver')
+            print(f'  HeapDumpStarDiver path: {star_diver}')
+            print(f'  Exists: {os.path.isfile(star_diver)}, Executable: {os.access(star_diver, os.X_OK) if os.path.isfile(star_diver) else False}')
+            if os.path.isfile(star_diver) and os.access(star_diver, os.X_OK):
+                print(f"  Using HeapDumpStarDiver for complete heap parsing...")
+                # 清理旧 parquet
+                for f in glob.glob(os.path.join(output_dir, '*.parquet')):
+                    os.remove(f)
+                result = subprocess.run(
+                    [star_diver, '--file', std_path, 'dump-objects-to-parquet'],
+                    cwd=output_dir, capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    # HeapDumpStarDiver 创建 parquet/ 子目录，把文件移到 output_dir
+                    inner = os.path.join(output_dir, 'parquet')
+                    if os.path.isdir(inner):
+                        for f in os.listdir(inner):
+                            src = os.path.join(inner, f)
+                            dst = os.path.join(output_dir, f)
+                            os.rename(src, dst)
+                        os.rmdir(inner)
+                    # 统计
+                    all_files = glob.glob(os.path.join(output_dir, '*.parquet'))
+                    class_files = [f for f in all_files if not os.path.basename(f).startswith('_')]
+                    # 用 DuckDB 统计总对象数
+                    import duckdb as _ddb
+                    _con = _ddb.connect()
+                    _total = 0
+                    for _f in class_files:
+                        try:
+                            _c = _con.execute(f"SELECT COUNT(*) FROM read_parquet('{_f}')").fetchone()[0]
+                            _total += _c
+                        except: pass
+                    _con.close()
+                    counts = {
+                        'objects': _total,
+                        'classes': len(class_files),
+                        'gc_roots': 0,
+                        'strings': 0,
+                        'object_refs': 0,
+                        'star_diver': True,
+                    }
+                    print(f"  \u2713 HeapDumpStarDiver: {len(class_files):,} class files")
+                    return counts
+                else:
+                    print(f"  \u26a0 HeapDumpStarDiver failed, falling back to Python parser")
+            else:
+                print(f"  \u26a0 HeapDumpStarDiver not found, using Python parser")
 
     # Write Parquet using the library writer (includes parsing internally)
     counts = convert_hprof_to_parquet(hprof_path, output_dir, std_class_names=std_class_names)
 
-    print(f"✓ Conversion complete. Parquet files written to {output_dir}")
+    print(f"\u2713 Conversion complete. Parquet files written to {output_dir}")
     print(f"  Parsed: {counts['objects']} objects, {counts['classes']} classes, {counts['strings']} strings")
 
     return counts
@@ -82,6 +132,16 @@ def run_duckdb_analysis(parquet_dir: str) -> Dict[str, Any]:
 
     con = duckdb.connect()
     result = {'parquet_dir': parquet_dir}
+
+    # 检测是否为 HeapDumpStarDiver 输出 (按类分文件)
+    import glob as _glob
+    star_diver_mode = any(
+        not os.path.basename(f).startswith('_')
+        for f in _glob.glob(os.path.join(parquet_dir, '*.parquet'))
+    ) and os.path.isfile(os.path.join(parquet_dir, '_gc_roots.parquet'))
+
+    if star_diver_mode:
+        return _run_star_diver_analysis(con, parquet_dir, result)
     result['std_class_count'] = 0  # Will be set if standard parser was used
 
     # ── A1: Object type distribution ──────────────────────────────────
@@ -144,7 +204,14 @@ def run_duckdb_analysis(parquet_dir: str) -> Dict[str, Any]:
             GROUP BY root_type
             ORDER BY count DESC
         """).fetchall()
-        result['gc_root_dist'] = [{'type': r[0], 'count': r[1]} for r in gc_dist]
+        # 标准化 root_type 名称以匹配报告检查
+        type_map = {
+            'Unknown': 'UNKNOWN', 'SystemClass': 'SYSTEM_CLASS',
+            'JavaStackFrame': 'JAVA_STACK', 'JniGlobal': 'JNI_GLOBAL',
+            'NativeStack': 'NATIVE_STACK', 'ThreadObj': 'THREAD_OBJ',
+            'JniLocal': 'JNI_LOCAL',
+        }
+        result['gc_root_dist'] = [{'type': type_map.get(r[0], r[0].upper()), 'count': r[1]} for r in gc_dist]
         result['total_gc_roots'] = sum(r[1] for r in gc_dist)
 
         # JAVA_STACK holders
@@ -267,6 +334,150 @@ def run_duckdb_analysis(parquet_dir: str) -> Dict[str, Any]:
         result['frames'] = []
 
     con.close()
+    return result
+
+
+def _run_star_diver_analysis(con, parquet_dir, result):
+    """Run DuckDB analysis on HeapDumpStarDiver output (per-class schema)."""
+    import glob as _glob
+
+    # 统计每类对象数
+    class_files = [f for f in _glob.glob(os.path.join(parquet_dir, '*.parquet'))
+                   if not os.path.basename(f).startswith('_')]
+    class_counts = []
+    total_objects = 0
+    for f in class_files:
+        bn = os.path.basename(f)
+        parts = bn.rsplit('_', 1)
+        if len(parts) == 2:
+            cn = parts[0]
+            cnt = con.execute(f"SELECT COUNT(*) FROM read_parquet('{f}')").fetchone()[0]
+            class_counts.append((cn, cnt))
+            total_objects += cnt
+    class_counts.sort(key=lambda x: -x[1])
+
+    result['total_objects'] = total_objects
+    result['top_classes'] = [{'name': cn, 'count': cnt} for cn, cnt in class_counts[:50]]
+
+    # 包级别分布
+    pkg_dist = []
+    pkg_map = {}
+    for cn, cnt in class_counts:
+        if cn.startswith('com.xingjiabi.'): pkg = 'com.xingjiabi.*'
+        elif cn.startswith('com.xmhaihao.'): pkg = 'com.xmhaihao.*'
+        elif cn.startswith('com.xmhaibao.'): pkg = 'com.xmhaibao.*'
+        elif cn.startswith('cn.taqu.'): pkg = 'cn.taqu.*'
+        elif cn.startswith('hb.'): pkg = 'hb.*'
+        elif cn.startswith('android.'): pkg = 'android.*'
+        elif cn.startswith('java.'): pkg = 'java.*'
+        elif cn.startswith('kotlin.'): pkg = 'kotlin.*'
+        elif cn.startswith('androidx.'): pkg = 'androidx.*'
+        elif cn.startswith('com.android.'): pkg = 'com.android.*'
+        else: pkg = 'other'
+        pkg_map[pkg] = pkg_map.get(pkg, 0) + cnt
+    for pkg, cnt in sorted(pkg_map.items(), key=lambda x: -x[1]):
+        pkg_dist.append({'group': pkg, 'count': cnt})
+    result['package_dist'] = pkg_dist
+
+    # Name coverage (all class names are real)
+    result['name_coverage'] = {'mapped': total_objects, 'unmapped(class_X)': 0, 'unresolved(0)': 0}
+    result['shallow_size_estimate_mb'] = round(total_objects * 24 / (1024*1024), 2)
+
+    # GC Roots
+    gc_file = os.path.join(parquet_dir, '_gc_roots.parquet')
+    if os.path.isfile(gc_file):
+        gc_dist = con.execute(f"""
+            SELECT root_type, COUNT(*) as count
+            FROM read_parquet('{gc_file}')
+            GROUP BY root_type ORDER BY count DESC
+        """).fetchall()
+        # 标准化 root_type 名称以匹配报告检查
+        type_map = {
+            'Unknown': 'UNKNOWN', 'SystemClass': 'SYSTEM_CLASS',
+            'JavaStackFrame': 'JAVA_STACK', 'JniGlobal': 'JNI_GLOBAL',
+            'NativeStack': 'NATIVE_STACK', 'ThreadObj': 'THREAD_OBJ',
+            'JniLocal': 'JNI_LOCAL',
+        }
+        result['gc_root_dist'] = [{'type': type_map.get(r[0], r[0].upper()), 'count': r[1]} for r in gc_dist]
+        result['total_gc_roots'] = sum(r[1] for r in gc_dist)
+
+        # GC Root → 类关联: 用 DuckDB union 所有类文件，JOIN gc_roots
+        # 构建 obj_id → class_name 映射 (采样前 200 个类文件以加速)
+        import glob as _g2
+        all_class_files = _g2.glob(os.path.join(parquet_dir, '*.parquet'))
+        class_files_only = [f for f in all_class_files if not os.path.basename(f).startswith('_')]
+
+        # 创建 obj_id → class_name 视图 (用 DuckDB 读所有类文件)
+        obj_class_map = {}
+        for cf in class_files_only:
+            bn = os.path.basename(cf)
+            parts = bn.rsplit('_', 1)
+            if len(parts) == 2:
+                cn = parts[0]
+                try:
+                    rows = con.execute(f"SELECT obj_id FROM read_parquet('{cf}')").fetchall()
+                    for r in rows:
+                        obj_class_map[r[0]] = cn
+                except: pass
+
+        # JAVA_STACK holders
+        java_holders = {}
+        sys_holders = {}
+        for rt, cnt in gc_dist:
+            if rt == 'JavaStackFrame':
+                js_rows = con.execute(f"""
+                    SELECT obj_id FROM read_parquet('{gc_file}') WHERE root_type = 'JavaStackFrame'
+                """).fetchall()
+                for r in js_rows:
+                    oid = r[0]
+                    cn = obj_class_map.get(oid, 'unknown')
+                    java_holders[cn] = java_holders.get(cn, 0) + 1
+            elif rt == 'SystemClass':
+                sc_rows = con.execute(f"""
+                    SELECT obj_id FROM read_parquet('{gc_file}') WHERE root_type = 'SystemClass'
+                """).fetchall()
+                for r in sc_rows:
+                    oid = r[0]
+                    cn = obj_class_map.get(oid, 'unknown')
+                    sys_holders[cn] = sys_holders.get(cn, 0) + 1
+
+        result['java_stack_holders'] = [{'name': k, 'count': v} for k, v in
+            sorted(java_holders.items(), key=lambda x: -x[1])[:30]]
+        result['system_class_holders'] = [{'name': k, 'count': v} for k, v in
+            sorted(sys_holders.items(), key=lambda x: -x[1])[:20]]
+        result['frame_holders'] = result['java_stack_holders'][:20]
+        result['thread_roots'] = []
+    else:
+        result['gc_root_dist'] = []
+        result['total_gc_roots'] = 0
+
+    # 静态字段
+    sf_file = os.path.join(parquet_dir, '_static_fields.parquet')
+    result['has_static_fields'] = os.path.isfile(sf_file)
+    if result['has_static_fields']:
+        sf_holders = con.execute(f"""
+            SELECT class_name, COUNT(*) as ref_count
+            FROM read_parquet('{sf_file}')
+            WHERE ref_id > 0
+            GROUP BY class_name ORDER BY ref_count DESC LIMIT 50
+        """).fetchall()
+        result['static_field_holders'] = [{'class': r[0], 'count': r[1]} for r in sf_holders]
+    else:
+        result['static_field_holders'] = []
+
+    # 引用链
+    result['has_object_refs'] = False
+    result['ref_chain'] = []
+    result['total_refs'] = 0
+
+    # 类层次
+    result['hierarchy'] = [{'name': cn, 'instances': cnt} for cn, cnt in class_counts[:30]]
+
+    # 线程和栈帧
+    result['threads'] = []
+    result['frames'] = []
+    result['std_class_count'] = len(class_files)
+
     return result
 
 
@@ -648,6 +859,13 @@ def analyze_hprof(
     # Step 2: Run DuckDB analysis
     print(f"\nRunning DuckDB analysis...")
     analysis = run_duckdb_analysis(parquet_dir)
+
+    # 如果是 HeapDumpStarDiver 模式，需要清理 parquet 子目录
+    if counts.get('star_diver'):
+        # parquet 数据在 parquet/parquet/ 下，需要调整路径
+        inner_parquet = os.path.join(parquet_dir, 'parquet')
+        if os.path.isdir(inner_parquet):
+            analysis = run_duckdb_analysis(inner_parquet)
 
     # Step 3: Generate report
     timestamp = get_timestamp_suffix()

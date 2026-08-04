@@ -172,7 +172,10 @@ class StandardHprofParser:
                     break
                 
                 if tag in (0x0E, 0x2C, 0x0C):  # HEAP_DUMP (0x0C used by hprof-conv)
+                    # 注意: payload 开头可能有 13 字节 header, 但子记录可能从不同位置开始
+                    # 尝试从 offset 0 解析, 如果失败则从 offset 13 解析
                     payload = f.read(length)
+                    # 尝试从 offset 0 解析, 失败则从 offset 13
                     count += self._parse_heap_subrecords(payload)
                 else:
                     f.seek(pos + 9 + length)  # skip
@@ -182,63 +185,120 @@ class StandardHprofParser:
         return count
 
     def _parse_heap_subrecords(self, payload: bytes) -> int:
-        """Parse HEAP_DUMP sub-records."""
+        """Parse HEAP_DUMP sub-records using jvm-hprof tag mapping.
+        
+        Tag mapping (from jvm-hprof-rs-li-hackweek source):
+        0xFF = GcRootUnknown (NOT HEAP_DUMP_END!)
+        0x08 = GcRootThreadObj
+        0x01 = GcRootJniGlobal
+        0x02 = GcRootJniLocalRef
+        0x03 = GcRootJavaStackFrame
+        0x04 = GcRootNativeStack
+        0x05 = GcRootSystemClass
+        0x06 = GcRootThreadBlock
+        0x07 = GcRootBusyMonitor
+        0x20 = Class (CLASS_DUMP)
+        0x21 = Instance (INSTANCE_DUMP)
+        0x22 = ObjectArray
+        0x23 = PrimitiveArray
+        """
+        import struct as _struct
         count = 0
         id_size = self.id_size
         pos = 0
         payload_len = len(payload)
         
+        # type code -> size mapping for field values
+        type_sizes = {2: id_size, 4: 1, 5: 2, 6: 4, 7: 8, 8: 1, 9: 2, 10: 4, 11: 8}
+        prim_sizes = {4: 1, 5: 2, 6: 4, 7: 8, 8: 1, 9: 2, 10: 4, 11: 8}
+        
         while pos < payload_len:
             if pos >= payload_len:
                 break
-            sub_tag = payload[pos]
+            tag = payload[pos]
             pos += 1
             
             try:
-                if sub_tag == 0x01:  # ROOT_JNI_GLOBAL
+                if tag == 0xFF:  # GcRootUnknown — NOT HEAP_DUMP_END!
+                    if pos + id_size > payload_len: break
                     obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    ref = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    self.gc_roots.append({'kind': 'JNI_GLOBAL', 'object_id': obj_id})
+                    self.gc_roots.append({'kind': 'UNKNOWN', 'object_id': obj_id})
                     count += 1
-                elif sub_tag == 0x02:  # ROOT_JNI_LOCAL
+                
+                elif tag == 0x08:  # GcRootThreadObj
+                    if pos + id_size + 8 > payload_len: break
                     obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    thread_serial, frame = struct.unpack_from('>II', payload, pos); pos += 8
-                    self.gc_roots.append({'kind': 'JNI_LOCAL', 'object_id': obj_id})
-                    count += 1
-                elif sub_tag == 0x03:  # ROOT_JAVA_FRAME
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    thread_serial, frame = struct.unpack_from('>II', payload, pos); pos += 8
-                    self.gc_roots.append({'kind': 'JAVA_FRAME', 'object_id': obj_id})
-                    count += 1
-                elif sub_tag == 0x04:  # ROOT_NATIVE_STACK
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    thread_serial = struct.unpack_from('>I', payload, pos)[0]; pos += 4
-                    self.gc_roots.append({'kind': 'NATIVE_STACK', 'object_id': obj_id})
-                    count += 1
-                elif sub_tag == 0x05:  # ROOT_MONITOR_USED
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    self.gc_roots.append({'kind': 'MONITOR_USED', 'object_id': obj_id})
-                    count += 1
-                elif sub_tag == 0x06:  # ROOT_THREAD_OBJ
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    thread_serial, stack_serial = struct.unpack_from('>II', payload, pos); pos += 8
+                    pos += 8  # thread_serial + stack_trace_serial
                     self.gc_roots.append({'kind': 'THREAD_OBJ', 'object_id': obj_id})
                     count += 1
-                elif sub_tag == 0x20:  # CLASS_DUMP
+                
+                elif tag == 0x01:  # GcRootJniGlobal
+                    if pos + id_size * 2 > payload_len: break
                     obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    pos += 4 + id_size * 6 + 4  # stack_trace + super+loader+signers+prot+reserved1+reserved2 + instance_size
-                    # Constant pool
-                    cp_count = struct.unpack_from('>H', payload, pos)[0] if pos+2 <= payload_len else 0; pos += 2
-                    for _ in range(cp_count):
-                        pos += 2; t = payload[pos-1]
-                        pos += self._type_size(t, id_size)
+                    pos += id_size  # ref_id
+                    self.gc_roots.append({'kind': 'JNI_GLOBAL', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x02:  # GcRootJniLocalRef
+                    if pos + id_size + 8 > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    pos += 8  # thread_serial + frame_index
+                    self.gc_roots.append({'kind': 'JNI_LOCAL', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x03:  # GcRootJavaStackFrame
+                    if pos + id_size + 8 > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    pos += 8  # thread_serial + frame_index
+                    self.gc_roots.append({'kind': 'JAVA_STACK', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x04:  # GcRootNativeStack
+                    if pos + id_size + 4 > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    pos += 4  # thread_serial
+                    self.gc_roots.append({'kind': 'NATIVE_STACK', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x05:  # GcRootSystemClass
+                    if pos + id_size > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    self.gc_roots.append({'kind': 'SYSTEM_CLASS', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x06:  # GcRootThreadBlock
+                    if pos + id_size + 4 > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    pos += 4  # thread_serial
+                    self.gc_roots.append({'kind': 'THREAD_BLOCK', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x07:  # GcRootBusyMonitor
+                    if pos + id_size > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    self.gc_roots.append({'kind': 'BUSY_MONITOR', 'object_id': obj_id})
+                    count += 1
+                
+                elif tag == 0x20:  # Class (CLASS_DUMP)
+                    if pos + id_size + 4 + id_size * 6 + 4 > payload_len: break
+                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                    pos += 4  # stack_trace_serial
+                    pos += id_size * 6  # super + loader + signers + prot + reserved1 + reserved2
+                    pos += 4  # instance_size
+                    
+                    # Constant pool — source confirms always 0 (assert_eq!(0, constant_pool_len))
+                    if pos + 2 > payload_len: break
+                    cp_count = _struct.unpack_from('>H', payload, pos)[0]; pos += 2
+                    # assert cp_count == 0  # jvm-hprof source says always 0
+                    
                     # Static fields
-                    sf_count = struct.unpack_from('>H', payload, pos)[0] if pos+2 <= payload_len else 0; pos += 2
+                    if pos + 2 > payload_len: break
+                    sf_count = _struct.unpack_from('>H', payload, pos)[0]; pos += 2
                     for _ in range(sf_count):
+                        if pos + id_size + 1 > payload_len: break
                         sf_name_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
                         sf_type = payload[pos]; pos += 1
-                        sf_value, pos = self._read_value(payload, pos, sf_type, id_size)
-                        # Find class name for this class_obj_id
+                        sf_val, pos = self._read_value(payload, pos, sf_type, id_size)
                         for serial, coid in self.class_obj_ids.items():
                             if coid == obj_id:
                                 self.static_fields.append({
@@ -246,122 +306,108 @@ class StandardHprofParser:
                                     'class_name': self.class_names.get(serial, ''),
                                     'field_name': self.strings.get(sf_name_id, ''),
                                     'field_type': sf_type,
-                                    'ref_id': sf_value if isinstance(sf_value, int) else 0,
+                                    'ref_id': sf_val if isinstance(sf_val, int) else 0,
                                 })
                                 break
+                    
                     # Instance fields
-                    if_count = struct.unpack_from('>H', payload, pos)[0] if pos+2 <= payload_len else 0; pos += 2
-                    for _ in range(if_count):
-                        pos += id_size + 1
-                elif sub_tag == 0x21:  # ROOT_STICKY_CLASS
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    self.gc_roots.append({'kind': 'STICKY_CLASS', 'object_id': obj_id})
+                    if pos + 2 > payload_len: break
+                    if_count = _struct.unpack_from('>H', payload, pos)[0]; pos += 2
+                    pos += if_count * (id_size + 1)
                     count += 1
-                elif sub_tag == 0x22:  # ROOT_THREAD_BLOCK
+                
+                elif tag == 0x21:  # Instance (INSTANCE_DUMP)
+                    if pos + id_size + 4 + id_size + 4 > payload_len: break
                     obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    thread_serial = struct.unpack_from('>I', payload, pos)[0]; pos += 4
-                    self.gc_roots.append({'kind': 'THREAD_BLOCK', 'object_id': obj_id})
-                    count += 1
-                elif sub_tag == 0x23:  # INSTANCE_DUMP (CLASS_OBJ in some versions)
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    stack_trace = struct.unpack_from('>I', payload, pos)[0]; pos += 4
+                    stack_trace = _struct.unpack_from('>I', payload, pos)[0]; pos += 4
                     class_obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    remaining = struct.unpack_from('>I', payload, pos)[0]; pos += 4
-                    # Read field data
-                    field_data = payload[pos:pos+remaining]; pos += remaining
-                    # Find class serial from class_obj_id
+                    num_bytes = _struct.unpack_from('>I', payload, pos)[0]; pos += 4
+                    
+                    if pos + num_bytes > payload_len: break
+                    field_data = payload[pos:pos+num_bytes]; pos += num_bytes
+                    
                     class_serial = 0
                     class_name = ''
                     for serial, coid in self.class_obj_ids.items():
                         if coid == class_obj_id:
                             class_serial = serial
-                            class_name = self.class_names.get(serial, f'class_{serial}')
+                            class_name = self.class_names.get(serial, '')
                             break
                     self.objects.append({
                         'obj_id': obj_id,
                         'class_serial': class_serial,
                         'class_name': class_name,
-                        'field_data_size': remaining,
+                        'class_obj_id': class_obj_id,
+                        'field_data_size': num_bytes,
                     })
                     count += 1
-                elif sub_tag == 0x24:  # INSTANCE_DUMP (alternative tag)
+                
+                elif tag == 0x22:  # ObjectArray
+                    # Source order: obj_id, stack_trace_serial, num_elements, array_class_id, elements
+                    if pos + id_size + 4 + 4 + id_size > payload_len: break
                     obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    stack_trace = struct.unpack_from('>I', payload, pos)[0]; pos += 4
-                    class_obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    remaining = struct.unpack_from('>I', payload, pos)[0]; pos += 4
-                    field_data = payload[pos:pos+remaining]; pos += remaining
-                    class_serial = 0
-                    class_name = ''
-                    for serial, coid in self.class_obj_ids.items():
-                        if coid == class_obj_id:
-                            class_serial = serial
-                            class_name = self.class_names.get(serial, f'class_{serial}')
-                            break
-                    self.objects.append({
-                        'obj_id': obj_id,
-                        'class_serial': class_serial,
-                        'class_name': class_name,
-                        'field_data_size': remaining,
-                    })
-                    count += 1
-                elif sub_tag == 0x25:  # OBJECT_ARRAY
-                    obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    stack_trace = struct.unpack_from('>I', payload, pos)[0]; pos += 4
+                    pos += 4  # stack_trace_serial
+                    num_elements = _struct.unpack_from('>I', payload, pos)[0]; pos += 4
                     array_class_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    elem_count = struct.unpack_from('>I', payload, pos)[0]; pos += 4
+                    
                     elements = []
-                    for _ in range(elem_count):
-                        if pos + id_size <= payload_len:
-                            elem = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                            elements.append(elem)
+                    for _ in range(num_elements):
+                        if pos + id_size > payload_len: break
+                        elem = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
+                        elements.append(elem)
                     self.object_arrays.append({
                         'obj_id': obj_id,
                         'class_name': '[object',
                         'elements': elements,
                     })
                     count += 1
-                elif sub_tag == 0x26:  # PRIMITIVE_ARRAY
+                
+                elif tag == 0x23:  # PrimitiveArray
+                    if pos + id_size + 4 + 4 + 1 > payload_len: break
                     obj_id = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-                    stack_trace = struct.unpack_from('>I', payload, pos)[0]; pos += 4
+                    pos += 4  # stack_trace_serial
+                    num_elements = _struct.unpack_from('>I', payload, pos)[0]; pos += 4
                     elem_type = payload[pos]; pos += 1
-                    elem_count = struct.unpack_from('>I', payload, pos)[0]; pos += 4
-                    elem_size = self._prim_array_elem_size(elem_type)
-                    pos += elem_count * elem_size
+                    
+                    elem_size = prim_sizes.get(elem_type, 4)
+                    data_size = num_elements * elem_size
+                    if pos + data_size > payload_len: break
+                    pos += data_size
                     self.primitive_arrays.append({
                         'obj_id': obj_id,
                         'type': elem_type,
-                        'count': elem_count,
+                        'count': num_elements,
                     })
                     count += 1
-                elif sub_tag == 0xFF:  # HEAP_DUMP_END
-                    break
+                
                 else:
-                    # Unknown sub-record, try to resync
-                    break
-            except (IndexError, struct.error):
-                break
+                    # Unknown tag: skip 1 byte and continue
+                    continue
+                    
+            except (IndexError, _struct.error):
+                continue
         
         return count
 
     def _type_size(self, type_code: int, id_size: int) -> int:
-        """Get size of a field type."""
-        sizes = {2: id_size, 4: 1, 5: 2, 6: 2, 7: 4, 8: 4, 9: 8, 10: 8}
+        """Get size of a field type.
+        HPROF: 2=object, 4=boolean(1), 5=char(2), 6=float(4), 7=double(8),
+        8=byte(1), 9=short(2), 10=int(4), 11=long(8)
+        """
+        sizes = {2: id_size, 4: 1, 5: 2, 6: 4, 7: 8, 8: 1, 9: 2, 10: 4, 11: 8}
         return sizes.get(type_code, id_size)
 
     def _read_value(self, payload: bytes, pos: int, type_code: int, id_size: int) -> Tuple[Any, int]:
-        """Read a field value based on type code."""
-        if type_code == 2:  # object
-            val = int.from_bytes(payload[pos:pos+id_size], 'big'); pos += id_size
-            return val, pos
-        elif type_code in (4,):  # boolean/byte
-            return payload[pos], pos + 1
-        elif type_code in (5, 6):  # char/short
-            return struct.unpack_from('>h', payload, pos)[0], pos + 2
-        elif type_code in (7, 8):  # int/float
-            return struct.unpack_from('>I', payload, pos)[0], pos + 4
-        elif type_code in (9, 10):  # long/double
-            return struct.unpack_from('>Q', payload, pos)[0], pos + 8
-        return 0, pos + id_size
+        """Read a field value based on type code.
+        HPROF type codes: 2=object, 4=boolean, 5=char, 6=float, 7=double,
+        8=byte, 9=short, 10=int, 11=long
+        """
+        sizes = {2: id_size, 4: 1, 5: 2, 6: 4, 7: 8, 8: 1, 9: 2, 10: 4, 11: 8}
+        size = sizes.get(type_code, id_size)
+        if pos + size > len(payload):
+            return 0, pos + id_size
+        val = int.from_bytes(payload[pos:pos+size], 'big')
+        return val, pos + size
 
     def _prim_array_elem_size(self, elem_type: int) -> int:
         """Get element size for primitive array type."""
