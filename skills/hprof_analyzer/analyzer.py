@@ -845,20 +845,65 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     lines.append("| 🟢 P3 | ≤ 5MB 泄漏对象 | 轻微 — 值得关注 |")
     lines.append(f"\n**总体评级**: {overall_icon} **{overall}** — {overall_desc}\n")
 
-    # ── 下一步行动 ───────────────────────────────────────────────────
+    # ── 下一步行动（动态生成）────────────────────────────────────────
     lines.append("## 下一步行动\n")
-    lines.append("1. **优先处理 P0/P1 类** — 检查这些类是否被静态集合或单例持有\n")
+    action_num = 1
 
+    # 1. 根据 P0/P1 可疑类给出具体建议
+    p0_p1 = [s for s in suspicious if s['severity'] in ('P0', 'P1')]
+    if p0_p1:
+        top_susp = p0_p1[0]
+        mem = next((c.get('memory_mb', 0) for c in analysis.get('top_classes', []) if c['name'] == top_susp['name']), 0)
+        lines.append(f"{action_num}. **优先处理 {top_susp['severity']} 类 `{top_susp['name']}`** — {top_susp['instances']:,} 个实例")
+        if mem > 0:
+            lines.append(f"   占用 {mem:.2f} MB 内存")
+        if top_susp['held'] > 0:
+            lines.append(f"   被 GC Root 持有 {top_susp['held']:,} 个引用\n")
+        else:
+            lines.append("\n")
+        action_num += 1
+
+    # 2. 不可达对象分析
+    unreachable = analysis.get('unreachable_objects', 0)
+    if unreachable > 0:
+        total_mem_bytes = sum(c.get('memory_bytes', 0) for c in analysis.get('top_classes', []))
+        if total_objs > 0:
+            unreach_mem = total_mem_bytes * unreachable / total_objs / (1024 * 1024)
+        else:
+            unreach_mem = 0
+        lines.append(f"{action_num}. **检查不可达对象** — {unreachable:,} 个对象不可达（约 {unreach_mem:.2f} MB），可能需要 GC 回收\n")
+        action_num += 1
+
+    # 3. 引用链中的 App 类
+    ref_chains = analysis.get('suspicious_ref_chains', {})
+    app_incoming = []
+    for cn, chain in ref_chains.items():
+        for ref in chain.get('incoming', []):
+            if any(p in ref['class'] for p in ['com.xingjiabi', 'com.xmhaihao', 'com.xmhaibao', 'cn.taqu', 'hb.']):
+                app_incoming.append((ref['class'], ref['count'], cn))
+    if app_incoming:
+        app_incoming.sort(key=lambda x: -x[1])
+        top_app_ref = app_incoming[0]
+        lines.append(f"{action_num}. **检查引用链中的 App 类** — `{top_app_ref[0]}` ★ 持有 `{top_app_ref[2]}` 的 {top_app_ref[1]:,} 个引用\n")
+        action_num += 1
+
+    # 4. 静态字段持有者
+    sf_holders = analysis.get('static_field_holders', [])
+    if sf_holders:
+        top_sf = sf_holders[0]
+        lines.append(f"{action_num}. **检查静态字段持有者** — `{top_sf['class']}` 持有 {top_sf['count']:,} 个静态引用\n")
+        action_num += 1
+
+    # 5. 类名覆盖率建议
     if cov_pct < 80:
-        lines.append("2. **提供 ProGuard/R8 mapping 文件** — 当前覆盖率仅 {:.1f}%，49 个 class_serial 完全无二进制线索\n".format(cov_pct))
-        lines.append("   - 从构建产物中获取 `mapping.txt`（位于 `app/build/outputs/mapping/release/`）\n")
-        lines.append("   - 将 mapping 文件放入 `<project_root>/hprof/` 目录，命名格式: `<hprof_name>_mapping.txt`\n")
-        lines.append("   - 解析器会自动检测并应用 mapping，覆盖率可提升至 95%+\n")
-    else:
-        lines.append("2. **获取 ProGuard mapping 文件** — 进一步提升类名识别度\n")
+        lines.append(f"{action_num}. **提供 ProGuard/R8 mapping 文件** — 当前覆盖率仅 {cov_pct:.1f}%\n")
+        action_num += 1
 
-    lines.append("3. **逆向 CLASS_DUMP 大 chunk** — 当前仅解析了 10 个类，大 chunk dense packed 格式未逆向\n")
-    lines.append("4. **解析 OBJECT_DUMP 字段值** — 从对象 payload 中提取字段引用，建立完整的引用链\n")
+    # 6. 引用链数据可用性
+    if analysis.get('has_object_refs'):
+        total_refs = analysis.get('total_refs', 0)
+        lines.append(f"{action_num}. **利用引用链深度排查** — 共 {total_refs:,} 条引用关系可用，可追溯任意对象的引用路径\n")
+        action_num += 1
 
     if suspicious:
         lines.append("\n### 针对可疑类的具体排查建议\n")
