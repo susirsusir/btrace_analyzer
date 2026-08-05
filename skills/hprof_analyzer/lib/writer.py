@@ -217,17 +217,20 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
         'BUSY_MONITOR': 'BusyMonitor',
     }
 
-    # 0. Write _obj_class_map.parquet (obj_id → class_name, 用于 GC Root JOIN)
+    # 0. Write _obj_class_map.parquet (obj_id → class_name + field_data_size, 用于 GC Root JOIN 和内存分析)
     all_obj_ids = []
     all_class_names = []
+    all_field_sizes = []
     for obj in parser.objects:
         all_obj_ids.append(obj['obj_id'])
         all_class_names.append(obj.get('class_name') or f'class_{obj.get("class_serial", 0)}')
+        all_field_sizes.append(obj.get('field_data_size', 0))
     if all_obj_ids:
         map_table = pa.Table.from_arrays([
             pa.array(all_obj_ids, type=pa.uint64()),
             pa.array(all_class_names, type=pa.string()),
-        ], names=['obj_id', 'class_name'])
+            pa.array(all_field_sizes, type=pa.uint32()),
+        ], names=['obj_id', 'class_name', 'field_data_size'])
         pq.write_table(map_table, os.path.join(output_dir, '_obj_class_map.parquet'), compression='snappy')
 
     # 1. Write per-class files

@@ -345,7 +345,28 @@ def _run_star_diver_analysis(con, parquet_dir, result):
     class_counts.sort(key=lambda x: -x[1])
 
     result['total_objects'] = total_objects
-    result['top_classes'] = [{'name': cn, 'count': cnt} for cn, cnt in class_counts[:50]]
+    # 计算 per-class 内存占用 (field_data_size 之和 + 对象头 16 字节/对象)
+    map_file = os.path.join(parquet_dir, '_obj_class_map.parquet')
+    class_memory = {}
+    if os.path.isfile(map_file):
+        mem_rows = con.execute(f"""
+            SELECT class_name, SUM(field_data_size) as total_field_bytes, COUNT(*) as obj_count
+            FROM read_parquet('{map_file}')
+            GROUP BY class_name
+        """).fetchall()
+        for cn, total_bytes, obj_count in mem_rows:
+            # shallow size = field_data_bytes + object_header(16B) * count
+            class_memory[cn] = total_bytes + 16 * obj_count
+    
+    result['top_classes'] = []
+    for cn, cnt in class_counts[:50]:
+        mem_bytes = class_memory.get(cn, 0)
+        result['top_classes'].append({
+            'name': cn,
+            'count': cnt,
+            'memory_bytes': mem_bytes,
+            'memory_mb': round(mem_bytes / (1024 * 1024), 2),
+        })
 
     # 包级别分布
     pkg_dist = []
@@ -558,7 +579,9 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     lines.append(f"| 总对象数 | {total_objs:,} |")
     lines.append(f"| 类名覆盖率 | {cov_pct:.1f}% ({mapped:,}/{total_objs:,}) |")
     lines.append(f"| GC Root 数量 | {total_gc} |")
+    total_mem = sum(c.get('memory_bytes', 0) for c in analysis.get('top_classes', []))
     lines.append(f"| 浅大小估算 | {analysis.get('shallow_size_estimate_mb', 0):.2f} MB |")
+    lines.append(f"| 实例内存占用 | {total_mem / (1024*1024):.2f} MB |")
     # 概要中增加线程数
     thread_count = len(analysis.get('threads', []))
     lines.append(f"| 线程快照数 | {thread_count} |")
@@ -576,14 +599,16 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     lines.append("\n## 堆分布\n")
 
     lines.append("### 对象数量 Top 30\n")
-    lines.append("| 排名 | 类名 | 实例数 | 占比 |")
-    lines.append("|------|------|--------|------|")
+    lines.append("| 排名 | 类名 | 实例数 | 占比 | 内存占用 |")
+    lines.append("|------|------|--------|------|----------|")
     for i, cls in enumerate(analysis.get('top_classes', [])[:30], 1):
         pct = cls['count'] / total_objs * 100 if total_objs > 0 else 0
         name = cls['name']
         if '$' in name:
             name += " ← Kotlin synthetic"
-        lines.append(f"| {i} | `{name}` | {cls['count']:,} | {pct:.1f}% |")
+        mem_mb = cls.get('memory_mb', 0)
+        mem_str = f"{mem_mb:.2f} MB" if mem_mb >= 1 else f"{cls.get('memory_bytes', 0) / 1024:.1f} KB"
+        lines.append(f"| {i} | `{name}` | {cls['count']:,} | {pct:.1f}% | {mem_str} |")
 
     lines.append("\n### 包级别分布\n")
     lines.append("| 包组 | 对象数 | 占比 |")
