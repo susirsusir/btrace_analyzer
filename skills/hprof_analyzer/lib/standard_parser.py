@@ -71,6 +71,8 @@ class StandardHprofParser:
         self.object_arrays: List[Dict] = []
         self.primitive_arrays: List[Dict] = []
         self.static_fields: List[Dict] = []
+        self.class_instance_fields = {}  # class_obj_id → list of (field_name_id, field_type)
+        self.object_refs = []  # (obj_id, ref_obj_id) pairs
         self.record_start = 0
 
     def _read_header(self) -> int:
@@ -313,7 +315,15 @@ class StandardHprofParser:
                     # Instance fields
                     if pos + 2 > payload_len: break
                     if_count = _struct.unpack_from('>H', payload, pos)[0]; pos += 2
-                    pos += if_count * (id_size + 1)
+                    # Store instance field descriptors for reference parsing
+                    if_descriptors = []
+                    for _ in range(if_count):
+                        if pos + id_size + 1 > payload_len: break
+                        fid = int.from_bytes(payload[pos:pos+id_size], 'big')
+                        ft = payload[pos + id_size]
+                        if_descriptors.append((fid, ft))
+                        pos += id_size + 1
+                    self.class_instance_fields[obj_id] = if_descriptors
                     count += 1
                 
                 elif tag == 0x21:  # Instance (INSTANCE_DUMP)
@@ -325,6 +335,22 @@ class StandardHprofParser:
                     
                     if pos + num_bytes > payload_len: break
                     field_data = payload[pos:pos+num_bytes]; pos += num_bytes
+                    
+                    # P1: Parse field data to extract object references
+                    if_descriptors = self.class_instance_fields.get(class_obj_id)
+                    if if_descriptors and num_bytes > 0:
+                        fp = 0
+                        for (fid, ft) in if_descriptors:
+                            fs = type_sizes.get(ft, id_size)
+                            if fp + fs > num_bytes: break
+                            if ft == 2:  # object reference
+                                ref_id = int.from_bytes(field_data[fp:fp+id_size], 'big')
+                                if ref_id > 0:
+                                    self.object_refs.append({
+                                        'obj_id': obj_id,
+                                        'ref_obj_id': ref_id,
+                                    })
+                            fp += fs
                     
                     class_serial = 0
                     class_name = ''

@@ -217,6 +217,19 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
         'BUSY_MONITOR': 'BusyMonitor',
     }
 
+    # 0. Write _obj_class_map.parquet (obj_id → class_name, 用于 GC Root JOIN)
+    all_obj_ids = []
+    all_class_names = []
+    for obj in parser.objects:
+        all_obj_ids.append(obj['obj_id'])
+        all_class_names.append(obj.get('class_name') or f'class_{obj.get("class_serial", 0)}')
+    if all_obj_ids:
+        map_table = pa.Table.from_arrays([
+            pa.array(all_obj_ids, type=pa.uint64()),
+            pa.array(all_class_names, type=pa.string()),
+        ], names=['obj_id', 'class_name'])
+        pq.write_table(map_table, os.path.join(output_dir, '_obj_class_map.parquet'), compression='snappy')
+
     # 1. Write per-class files
     objects_by_class = defaultdict(list)
     class_obj_ids = {}
@@ -228,11 +241,13 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
 
     class_count = 0
     for cn, objs in objects_by_class.items():
-        rows = [{'obj_id': o['obj_id']} for o in objs]
-        table = pa.Table.from_pylist(rows)
+        obj_ids = [o['obj_id'] for o in objs]
+        table = pa.Table.from_arrays([
+            pa.array(obj_ids, type=pa.uint64()),
+        ], names=['obj_id'])
         coid = class_obj_ids.get(cn, 0)
         # Clean class name for filename
-        safe_cn = cn.replace('/', '_').replace('$', '_')
+        safe_cn = cn.replace('/', '_')
         filename = f"{safe_cn}_{coid}.parquet"
         filepath = os.path.join(output_dir, filename)
         pq.write_table(table, filepath, compression='snappy')
@@ -240,31 +255,38 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
 
     # 2. Write _gc_roots.parquet
     if parser.gc_roots:
-        root_rows = []
+        rt_list = []
+        oid_list = []
         for r in parser.gc_roots:
-            root_rows.append({
-                'root_type': kind_map.get(r.get('kind', 'UNKNOWN'), 'Unknown'),
-                'obj_id': r.get('object_id', 0),
-                'thread_serial': 0,
-                'frame_index': 0,
-            })
-        table = pa.Table.from_pylist(root_rows)
+            rt_list.append(kind_map.get(r.get('kind', 'UNKNOWN'), 'Unknown'))
+            oid_list.append(r.get('object_id', 0))
+        table = pa.Table.from_arrays([
+            pa.array(rt_list, type=pa.string()),
+            pa.array(oid_list, type=pa.uint64()),
+            pa.array([0] * len(rt_list), type=pa.uint32()),
+            pa.array([0] * len(rt_list), type=pa.uint32()),
+        ], names=['root_type', 'obj_id', 'thread_serial', 'frame_index'])
         pq.write_table(table, os.path.join(output_dir, '_gc_roots.parquet'), compression='snappy')
 
     # 3. Write _static_fields.parquet
     if parser.static_fields:
-        sf_rows = []
+        sf_class_names = []
+        sf_field_names = []
+        sf_field_types = []
+        sf_ref_ids = []
         for sf in parser.static_fields:
-            sf_rows.append({
-                'class_obj_id': 0,
-                'class_name': sf.get('class_name', ''),
-                'field_name': sf.get('field_name', ''),
-                'field_type': str(sf.get('field_type', 0)),
-                'primitive_value': '',
-                'ref_id': sf.get('ref_id', 0),
-                'ref_type': '',
-            })
-        table = pa.Table.from_pylist(sf_rows)
+            sf_class_names.append(sf.get('class_name', ''))
+            sf_field_names.append(sf.get('field_name', ''))
+            sf_field_types.append(str(sf.get('field_type', 0)))
+            # ref_id 用 uint64，避免溢出
+            ref_id = sf.get('ref_id', 0)
+            sf_ref_ids.append(ref_id if ref_id < (1 << 64) else 0)
+        table = pa.Table.from_arrays([
+            pa.array(sf_class_names, type=pa.string()),
+            pa.array(sf_field_names, type=pa.string()),
+            pa.array(sf_field_types, type=pa.string()),
+            pa.array(sf_ref_ids, type=pa.uint64()),
+        ], names=['class_name', 'field_name', 'field_type', 'ref_id'])
         pq.write_table(table, os.path.join(output_dir, '_static_fields.parquet'), compression='snappy')
 
     # 4. Write _object_arrays.parquet
@@ -278,6 +300,19 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
             })
         table = pa.Table.from_pylist(oa_rows)
         pq.write_table(table, os.path.join(output_dir, '_object_arrays.parquet'), compression='snappy')
+
+    # 4.5 Write _object_refs.parquet (field reference chain)
+    if hasattr(parser, 'object_refs') and parser.object_refs:
+        ref_obj_ids = []
+        src_obj_ids = []
+        for r in parser.object_refs:
+            src_obj_ids.append(r.get('obj_id', 0))
+            ref_obj_ids.append(r.get('ref_obj_id', 0))
+        table = pa.Table.from_arrays([
+            pa.array(src_obj_ids, type=pa.uint64()),
+            pa.array(ref_obj_ids, type=pa.uint64()),
+        ], names=['obj_id', 'ref_obj_id'])
+        pq.write_table(table, os.path.join(output_dir, '_object_refs.parquet'), compression='snappy')
 
     # 5. Write _primitive_arrays_*.parquet (group by type)
     type_suffix = {4: 'byte', 5: 'char', 6: 'float', 7: 'double', 8: 'byte', 9: 'short', 10: 'int', 11: 'long'}

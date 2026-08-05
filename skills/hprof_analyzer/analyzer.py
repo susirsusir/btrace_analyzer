@@ -389,51 +389,32 @@ def _run_star_diver_analysis(con, parquet_dir, result):
         result['gc_root_dist'] = [{'type': type_map.get(r[0], r[0].upper()), 'count': r[1]} for r in gc_dist]
         result['total_gc_roots'] = sum(r[1] for r in gc_dist)
 
-        # GC Root → 类关联: 用 DuckDB union 所有类文件，JOIN gc_roots
-        # 构建 obj_id → class_name 映射 (采样前 200 个类文件以加速)
-        import glob as _g2
-        all_class_files = _g2.glob(os.path.join(parquet_dir, '*.parquet'))
-        class_files_only = [f for f in all_class_files if not os.path.basename(f).startswith('_')]
+        # GC Root → 类关联: 用 DuckDB JOIN _obj_class_map.parquet (快速)
+        map_file = os.path.join(parquet_dir, '_obj_class_map.parquet')
+        if os.path.isfile(map_file):
+            # JAVA_STACK holders via DuckDB JOIN
+            js_holders = con.execute(f"""
+                SELECT m.class_name, COUNT(*) as held_count
+                FROM read_parquet('{gc_file}') gr
+                JOIN read_parquet('{map_file}') m ON gr.obj_id = m.obj_id
+                WHERE gr.root_type = 'JavaStackFrame'
+                GROUP BY m.class_name ORDER BY held_count DESC LIMIT 30
+            """).fetchall()
+            result['java_stack_holders'] = [{'name': r[0], 'count': r[1]} for r in js_holders]
 
-        # 创建 obj_id → class_name 视图 (用 DuckDB 读所有类文件)
-        obj_class_map = {}
-        for cf in class_files_only:
-            bn = os.path.basename(cf)
-            parts = bn.rsplit('_', 1)
-            if len(parts) == 2:
-                cn = parts[0]
-                try:
-                    rows = con.execute(f"SELECT obj_id FROM read_parquet('{cf}')").fetchall()
-                    for r in rows:
-                        obj_class_map[r[0]] = cn
-                except: pass
-
-        # JAVA_STACK holders
-        java_holders = {}
-        sys_holders = {}
-        for rt, cnt in gc_dist:
-            if rt == 'JavaStackFrame':
-                js_rows = con.execute(f"""
-                    SELECT obj_id FROM read_parquet('{gc_file}') WHERE root_type = 'JavaStackFrame'
-                """).fetchall()
-                for r in js_rows:
-                    oid = r[0]
-                    cn = obj_class_map.get(oid, 'unknown')
-                    java_holders[cn] = java_holders.get(cn, 0) + 1
-            elif rt == 'SystemClass':
-                sc_rows = con.execute(f"""
-                    SELECT obj_id FROM read_parquet('{gc_file}') WHERE root_type = 'SystemClass'
-                """).fetchall()
-                for r in sc_rows:
-                    oid = r[0]
-                    cn = obj_class_map.get(oid, 'unknown')
-                    sys_holders[cn] = sys_holders.get(cn, 0) + 1
-
-        result['java_stack_holders'] = [{'name': k, 'count': v} for k, v in
-            sorted(java_holders.items(), key=lambda x: -x[1])[:30]]
-        result['system_class_holders'] = [{'name': k, 'count': v} for k, v in
-            sorted(sys_holders.items(), key=lambda x: -x[1])[:20]]
-        result['frame_holders'] = result['java_stack_holders'][:20]
+            # SYSTEM_CLASS holders via DuckDB JOIN
+            sc_holders = con.execute(f"""
+                SELECT m.class_name, COUNT(*) as held_count
+                FROM read_parquet('{gc_file}') gr
+                JOIN read_parquet('{map_file}') m ON gr.obj_id = m.obj_id
+                WHERE gr.root_type = 'SystemClass'
+                GROUP BY m.class_name ORDER BY held_count DESC LIMIT 20
+            """).fetchall()
+            result['system_class_holders'] = [{'name': r[0], 'count': r[1]} for r in sc_holders]
+        else:
+            result['java_stack_holders'] = []
+            result['system_class_holders'] = []
+        result['frame_holders'] = result.get('java_stack_holders', [])[:20]
         result['thread_roots'] = []
     else:
         result['gc_root_dist'] = []
@@ -453,10 +434,56 @@ def _run_star_diver_analysis(con, parquet_dir, result):
     else:
         result['static_field_holders'] = []
 
-    # 引用链
-    result['has_object_refs'] = False
-    result['ref_chain'] = []
-    result['total_refs'] = 0
+    # P1: 引用链分析
+    ref_file = os.path.join(parquet_dir, '_object_refs.parquet')
+    if os.path.isfile(ref_file):
+        result['has_object_refs'] = True
+        result['total_refs'] = con.execute(f"SELECT COUNT(*) FROM read_parquet('{ref_file}')").fetchone()[0]
+        # 引用链: 哪些类引用最多其他对象
+        ref_chain = con.execute(f"""
+            SELECT m1.class_name as from_class, m2.class_name as to_class, COUNT(*) as cnt
+            FROM read_parquet('{ref_file}') r
+            JOIN read_parquet('{os.path.join(parquet_dir, '_obj_class_map.parquet')}') m1 ON r.obj_id = m1.obj_id
+            JOIN read_parquet('{os.path.join(parquet_dir, '_obj_class_map.parquet')}') m2 ON r.ref_obj_id = m2.obj_id
+            GROUP BY m1.class_name, m2.class_name ORDER BY cnt DESC LIMIT 30
+        """).fetchall()
+        result['ref_chain'] = [{'from': r[0], 'to': r[1], 'count': r[2]} for r in ref_chain]
+
+        # P2: Retained size 估算 (从 GC Root 可达的对象数)
+        gc_obj_ids = [r[0] for r in con.execute(f"SELECT DISTINCT obj_id FROM read_parquet('{gc_file}')").fetchall()]
+        all_refs = con.execute(f"SELECT obj_id, ref_obj_id FROM read_parquet('{ref_file}')").fetchall()
+        # 构建引用图
+        ref_graph = {}
+        for src, dst in all_refs:
+            if src not in ref_graph:
+                ref_graph[src] = []
+            ref_graph[src].append(dst)
+        # BFS from GC roots
+        reachable = set()
+        from collections import deque
+        queue = deque(gc_obj_ids)
+        for goid in gc_obj_ids:
+            reachable.add(goid)
+        while queue:
+            current = queue.popleft()
+            for ref in ref_graph.get(current, []):
+                if ref not in reachable:
+                    reachable.add(ref)
+                    queue.append(ref)
+        result['reachable_objects'] = len(reachable)
+        result['unreachable_objects'] = result['total_objects'] - len(reachable)
+        # Top retained: 哪些对象被最多其他对象引用
+        from collections import Counter as _Counter2
+        in_degree = _Counter2()
+        for _, dst in all_refs:
+            in_degree[dst] += 1
+        result['top_retained'] = [{'obj_id': oid, 'in_degree': cnt} for oid, cnt in in_degree.most_common(20)]
+    else:
+        result['has_object_refs'] = False
+        result['ref_chain'] = []
+        result['total_refs'] = 0
+        result['reachable_objects'] = 0
+        result['unreachable_objects'] = 0
 
     # 类层次
     result['hierarchy'] = [{'name': cn, 'instances': cnt} for cn, cnt in class_counts[:30]]
@@ -750,20 +777,33 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     else:
         name_score, name_note = 1, "类名识别度低，需 ProGuard mapping"
 
-    if total_gc > 0 and (analysis.get('java_stack_holders') or analysis.get('system_class_holders')):
+    if total_gc > 0 and analysis.get('java_stack_holders'):
+        # Check if 'unknown' holders < 20%
+        js_unknown = sum(h['count'] for h in analysis.get('java_stack_holders', []) if h['name'] == 'unknown')
+        js_total = sum(h['count'] for h in analysis.get('java_stack_holders', []))
+        if js_total > 0 and js_unknown / js_total < 0.2:
+            assoc_score, assoc_note = 4, "GC Root 精确关联 (unknown < 20%)"
+        else:
+            assoc_score, assoc_note = 3, "GC Root 与对象有关联"
+    elif total_gc > 0 and (analysis.get('java_stack_holders') or analysis.get('system_class_holders')):
         assoc_score, assoc_note = 3, "GC Root 与对象有关联"
     else:
         assoc_score, assoc_note = 1, "GC Root 分析不完整"
 
     has_js = any(r['type'] == 'JAVA_STACK' for r in analysis.get('gc_root_dist', []))
     if has_js and analysis.get('java_stack_holders'):
-        gc_score, gc_note = 3, "JavaStackFrame 持有分析完整"
+        if analysis.get('has_object_refs'):
+            gc_score, gc_note = 4, "JavaStackFrame + 引用链完整"
+        else:
+            gc_score, gc_note = 3, "JavaStackFrame 持有分析完整"
     elif has_js:
         gc_score, gc_note = 2, "有 GC Root 类型分布但持有分析不完整"
     else:
         gc_score, gc_note = 1, "GC Root 数据有限"
 
-    if suspicious:
+    if suspicious and analysis.get("reachable_objects", 0) > 0:
+        leak_score, leak_note = 4, "可疑类 + retained size 分析"
+    elif suspicious:
         leak_score, leak_note = 3, f"识别出 {len(suspicious)} 个可疑类并有风险评级"
     else:
         leak_score, leak_note = 2, "未发现明显泄漏，但需 ProGuard mapping 进一步验证"
