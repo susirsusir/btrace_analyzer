@@ -529,6 +529,34 @@ def _run_star_diver_analysis(con, parquet_dir, result):
         result['reachable_objects'] = 0
         result['unreachable_objects'] = 0
 
+    # 可疑类引用链路 (incoming + outgoing)
+    suspicious_ref_chains = {}
+    if os.path.isfile(ref_file) and os.path.isfile(map_file):
+        for cn, cnt in class_counts[:20]:  # Top 20 类的引用链路
+            # 谁引用了这个类 (incoming)
+            incoming = con.execute(f"""
+                SELECT m1.class_name, COUNT(*) as cnt
+                FROM read_parquet('{ref_file}') r
+                JOIN read_parquet('{map_file}') m1 ON r.obj_id = m1.obj_id
+                JOIN read_parquet('{map_file}') m2 ON r.ref_obj_id = m2.obj_id
+                WHERE m2.class_name = '{cn}'
+                GROUP BY m1.class_name ORDER BY cnt DESC LIMIT 10
+            """).fetchall()
+            # 这个类引用了谁 (outgoing)
+            outgoing = con.execute(f"""
+                SELECT m2.class_name, COUNT(*) as cnt
+                FROM read_parquet('{ref_file}') r
+                JOIN read_parquet('{map_file}') m1 ON r.obj_id = m1.obj_id
+                JOIN read_parquet('{map_file}') m2 ON r.ref_obj_id = m2.obj_id
+                WHERE m1.class_name = '{cn}'
+                GROUP BY m2.class_name ORDER BY cnt DESC LIMIT 10
+            """).fetchall()
+            suspicious_ref_chains[cn] = {
+                'incoming': [{'class': r[0], 'count': r[1]} for r in incoming],
+                'outgoing': [{'class': r[0], 'count': r[1]} for r in outgoing],
+            }
+    result['suspicious_ref_chains'] = suspicious_ref_chains
+
     # 类层次
     result['hierarchy'] = [{'name': cn, 'instances': cnt,
         'memory_bytes': class_memory.get(cn, 0),
@@ -840,6 +868,27 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
             lines.append(f"- 泄漏模式: {s['type']}")
             if s['held'] > 0:
                 lines.append(f"- GC Root 持有: {s['held']:,} 个引用")
+                # 引用链路展示
+                ref_chains = analysis.get('suspicious_ref_chains', {})
+                chain = ref_chains.get(s['name'], {})
+                incoming = chain.get('incoming', [])
+                outgoing = chain.get('outgoing', [])
+                if incoming:
+                    lines.append(f"\n**被以下类引用** (谁持有我 → 共 {len(incoming)} 类):\n")
+                    lines.append("| 引用方 | 引用数 |")
+                    lines.append("|--------|--------|")
+                    for ref in incoming[:10]:
+                        is_app_ref = any(p in ref['class'] for p in ['com.xingjiabi', 'com.xmhaihao', 'com.xmhaibao', 'cn.taqu', 'hb.'])
+                        lines.append(f"| `{ref['class']}` {'★' if is_app_ref else ''} | {ref['count']:,} |")
+                if outgoing:
+                    lines.append(f"\n**引用以下类** (我持有谁 → 共 {len(outgoing)} 类):\n")
+                    lines.append("| 被引用方 | 引用数 |")
+                    lines.append("|----------|--------|")
+                    for ref in outgoing[:10]:
+                        is_app_ref = any(p in ref['class'] for p in ['com.xingjiabi', 'com.xmhaihao', 'com.xmhaibao', 'cn.taqu', 'hb.'])
+                        lines.append(f"| `{ref['class']}` {'★' if is_app_ref else ''} | {ref['count']:,} |")
+                if not incoming and not outgoing:
+                    lines.append("\n*无引用链路数据*\n")
             lines.append("- 建议:\n  - 检查是否有静态集合持有此类\n  - 检查 Activity/Fragment 的生命周期管理\n  - 检查监听器/回调是否正确注销\n")
 
     # ── 质量评估 ─────────────────────────────────────────────────────
