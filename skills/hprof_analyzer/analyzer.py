@@ -368,9 +368,10 @@ def _run_star_diver_analysis(con, parquet_dir, result):
             'memory_mb': round(mem_bytes / (1024 * 1024), 2),
         })
 
-    # 包级别分布
+    # 包级别分布 (含内存)
     pkg_dist = []
     pkg_map = {}
+    pkg_mem = {}
     for cn, cnt in class_counts:
         if cn.startswith('com.xingjiabi.'): pkg = 'com.xingjiabi.*'
         elif cn.startswith('com.xmhaihao.'): pkg = 'com.xmhaihao.*'
@@ -384,8 +385,11 @@ def _run_star_diver_analysis(con, parquet_dir, result):
         elif cn.startswith('com.android.'): pkg = 'com.android.*'
         else: pkg = 'other'
         pkg_map[pkg] = pkg_map.get(pkg, 0) + cnt
+        pkg_mem[pkg] = pkg_mem.get(pkg, 0) + class_memory.get(cn, 0)
     for pkg, cnt in sorted(pkg_map.items(), key=lambda x: -x[1]):
-        pkg_dist.append({'group': pkg, 'count': cnt})
+        mem = pkg_mem.get(pkg, 0)
+        pkg_dist.append({'group': pkg, 'count': cnt, 'memory_bytes': mem,
+                         'memory_mb': round(mem / (1024*1024), 2)})
     result['package_dist'] = pkg_dist
 
     # Name coverage (all class names are real)
@@ -421,7 +425,9 @@ def _run_star_diver_analysis(con, parquet_dir, result):
                 WHERE gr.root_type = 'JavaStackFrame'
                 GROUP BY m.class_name ORDER BY held_count DESC LIMIT 30
             """).fetchall()
-            result['java_stack_holders'] = [{'name': r[0], 'count': r[1]} for r in js_holders]
+            result['java_stack_holders'] = [{'name': r[0], 'count': r[1],
+                'memory_bytes': class_memory.get(r[0], 0),
+                'memory_mb': round(class_memory.get(r[0], 0) / (1024*1024), 2)} for r in js_holders]
 
             # SYSTEM_CLASS holders via DuckDB JOIN
             sc_holders = con.execute(f"""
@@ -431,7 +437,9 @@ def _run_star_diver_analysis(con, parquet_dir, result):
                 WHERE gr.root_type = 'SystemClass'
                 GROUP BY m.class_name ORDER BY held_count DESC LIMIT 20
             """).fetchall()
-            result['system_class_holders'] = [{'name': r[0], 'count': r[1]} for r in sc_holders]
+            result['system_class_holders'] = [{'name': r[0], 'count': r[1],
+                'memory_bytes': class_memory.get(r[0], 0),
+                'memory_mb': round(class_memory.get(r[0], 0) / (1024*1024), 2)} for r in sc_holders]
         else:
             result['java_stack_holders'] = []
             result['system_class_holders'] = []
@@ -446,12 +454,27 @@ def _run_star_diver_analysis(con, parquet_dir, result):
     result['has_static_fields'] = os.path.isfile(sf_file)
     if result['has_static_fields']:
         sf_holders = con.execute(f"""
-            SELECT class_name, COUNT(*) as ref_count
-            FROM read_parquet('{sf_file}')
-            WHERE ref_id > 0
-            GROUP BY class_name ORDER BY ref_count DESC LIMIT 50
+            SELECT sf.class_name, COUNT(*) as ref_count
+            FROM read_parquet('{sf_file}') sf
+            WHERE sf.ref_id > 0
+            GROUP BY sf.class_name ORDER BY ref_count DESC LIMIT 50
         """).fetchall()
-        result['static_field_holders'] = [{'class': r[0], 'count': r[1]} for r in sf_holders]
+        # 计算每个持有者引用的对象总内存
+        sf_mem_map = {}
+        if os.path.isfile(map_file):
+            sf_mem_rows = con.execute(f"""
+                SELECT m2.class_name, SUM(m1.field_data_size + 16) as mem_bytes
+                FROM read_parquet('{sf_file}') sf
+                JOIN read_parquet('{map_file}') m1 ON sf.ref_id = m1.obj_id
+                JOIN read_parquet('{map_file}') m2 ON sf.class_name = m2.class_name
+                WHERE sf.ref_id > 0
+                GROUP BY m2.class_name
+            """).fetchall()
+            for cn, mem_bytes in sf_mem_rows:
+                sf_mem_map[cn] = mem_bytes
+        result['static_field_holders'] = [{'class': r[0], 'count': r[1],
+            'memory_bytes': sf_mem_map.get(r[0], 0),
+            'memory_mb': round(sf_mem_map.get(r[0], 0) / (1024*1024), 2)} for r in sf_holders]
     else:
         result['static_field_holders'] = []
 
@@ -507,7 +530,9 @@ def _run_star_diver_analysis(con, parquet_dir, result):
         result['unreachable_objects'] = 0
 
     # 类层次
-    result['hierarchy'] = [{'name': cn, 'instances': cnt} for cn, cnt in class_counts[:30]]
+    result['hierarchy'] = [{'name': cn, 'instances': cnt,
+        'memory_bytes': class_memory.get(cn, 0),
+        'memory_mb': round(class_memory.get(cn, 0) / (1024*1024), 2)} for cn, cnt in class_counts[:30]]
 
     # 线程和栈帧
     result['threads'] = []
@@ -582,6 +607,16 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
     total_mem = sum(c.get('memory_bytes', 0) for c in analysis.get('top_classes', []))
     lines.append(f"| 浅大小估算 | {analysis.get('shallow_size_estimate_mb', 0):.2f} MB |")
     lines.append(f"| 实例内存占用 | {total_mem / (1024*1024):.2f} MB |")
+    reachable = analysis.get('reachable_objects', 0)
+    unreachable = analysis.get('unreachable_objects', 0)
+    if reachable > 0 or unreachable > 0:
+        # 估算可达/不可达内存 (按比例分配)
+        total_mem_bytes = total_mem
+        if total_objs > 0:
+            reach_mem = total_mem_bytes * reachable / total_objs
+            unreach_mem = total_mem_bytes * unreachable / total_objs
+            lines.append(f"| 可达对象内存 | {reach_mem / (1024*1024):.2f} MB ({reachable:,} 对象) |")
+            lines.append(f"| 不可达对象内存 | {unreach_mem / (1024*1024):.2f} MB ({unreachable:,} 对象) |")
     # 概要中增加线程数
     thread_count = len(analysis.get('threads', []))
     lines.append(f"| 线程快照数 | {thread_count} |")
@@ -611,11 +646,13 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
         lines.append(f"| {i} | `{name}` | {cls['count']:,} | {pct:.1f}% | {mem_str} |")
 
     lines.append("\n### 包级别分布\n")
-    lines.append("| 包组 | 对象数 | 占比 |")
-    lines.append("|------|--------|------|")
+    lines.append("| 包组 | 对象数 | 占比 | 内存占用 |")
+    lines.append("|------|--------|------|----------|")
     for pkg in analysis.get('package_dist', []):
         pct = pkg['count'] / total_objs * 100 if total_objs > 0 else 0
-        lines.append(f"| `{pkg['group']}` | {pkg['count']:,} | {pct:.1f}% |")
+        mem = pkg.get('memory_mb', 0)
+        mem_str = f"{mem:.2f} MB" if mem >= 1 else f"{pkg.get('memory_bytes', 0) / 1024:.1f} KB"
+        lines.append(f"| `{pkg['group']}` | {pkg['count']:,} | {pct:.1f}% | {mem_str} |")
 
     # ── GC Root 分析 ─────────────────────────────────────────────────
     lines.append("\n## GC Root 分析\n")
@@ -638,21 +675,25 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
 
         if analysis.get('java_stack_holders'):
             lines.append("\n### JAVA_STACK 持有 Top 类\n")
-            lines.append("| 类名 | 被持有数 | 风险 |")
-            lines.append("|------|----------|------|")
+            lines.append("| 类名 | 被持有数 | 内存占用 | 风险 |")
+            lines.append("|------|----------|----------|------|")
             for item in analysis['java_stack_holders'][:20]:
                 severity, _ = classify_leak_severity(item['name'], item['count'])
                 icon = {'P0': '🔴', 'P1': '🟠', 'P2': '🟡', 'P3': '🟢'}.get(severity, '⚪')
-                lines.append(f"| `{item['name']}` | {item['count']:,} | {icon} {severity} |")
+                mem = item.get('memory_mb', 0)
+                mem_str = f"{mem:.2f} MB" if mem >= 1 else f"{item.get('memory_bytes', 0) / 1024:.1f} KB"
+                lines.append(f"| `{item['name']}` | {item['count']:,} | {mem_str} | {icon} {severity} |")
 
         if analysis.get('system_class_holders'):
             lines.append("\n### SYSTEM_CLASS 持有 Top 类\n")
-            lines.append("| 类名 | 被持有数 | 风险 |")
-            lines.append("|------|----------|------|")
+            lines.append("| 类名 | 被持有数 | 内存占用 | 风险 |")
+            lines.append("|------|----------|----------|------|")
             for item in analysis['system_class_holders'][:15]:
                 severity, _ = classify_leak_severity(item['name'], item['count'])
                 icon = {'P0': '🔴', 'P1': '🟠', 'P2': '🟡', 'P3': '🟢'}.get(severity, '⚪')
-                lines.append(f"| `{item['name']}` | {item['count']:,} | {icon} {severity} |")
+                mem = item.get('memory_mb', 0)
+                mem_str = f"{mem:.2f} MB" if mem >= 1 else f"{item.get('memory_bytes', 0) / 1024:.1f} KB"
+                lines.append(f"| `{item['name']}` | {item['count']:,} | {mem_str} | {icon} {severity} |")
 
         if analysis.get('frame_holders'):
             lines.append("\n### GC_LOCAL / GC_JAVA_FRAME 持有 Top 类\n")
@@ -690,29 +731,40 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
 
     if suspicious:
         lines.append("### 可疑泄漏类（高实例数 + GC Root 持有）\n")
-        lines.append("| 类名 | 实例数 | GC Root 持有 | 严重性 | 泄漏模式 |")
-        lines.append("|------|--------|--------------|--------|----------|")
+        lines.append("| 类名 | 实例数 | 内存占用 | GC Root 持有 | 严重性 | 泄漏模式 |")
+        lines.append("|------|--------|----------|--------------|--------|----------|")
         for s in sorted(suspicious, key=lambda x: (x['severity'], -x['held'])):
+            cls_mem = next((c.get('memory_mb', 0) for c in analysis.get('top_classes', []) if c['name'] == s['name']), 0)
+            cls_mem_bytes = next((c.get('memory_bytes', 0) for c in analysis.get('top_classes', []) if c['name'] == s['name']), 0)
+            mem_str = f"{cls_mem:.2f} MB" if cls_mem >= 1 else f"{cls_mem_bytes / 1024:.1f} KB"
             icon = {'P0': '🔴', 'P1': '🟠', 'P2': '🟡', 'P3': '🟢'}.get(s['severity'], '⚪')
-            lines.append(f"| `{s['name']}` | {s['instances']:,} | {s['held']:,} | {icon} {s['severity']} | {s['type']} |")
+            lines.append(f"| `{s['name']}` | {s['instances']:,} | {mem_str} | {s['held']:,} | {icon} {s['severity']} | {s['type']} |")
     else:
         lines.append("✅ 未发现明显的高实例数泄漏类。\n")
 
     # 静态字段分析
     if analysis.get('has_static_fields'):
         lines.append("\n### 静态字段持有者 Top 30\n")
-        lines.append("| 类名 | 持有引用数 |")
-        lines.append("|------|------------|")
+        lines.append("| 类名 | 持有引用数 | 被引用内存 |")
+        lines.append("|------|------------|------------|")
         for sf in analysis.get('static_field_holders', [])[:30]:
-            lines.append(f"| `{sf['class']}` | {sf['count']:,} |")
+            mem = sf.get('memory_bytes', 0)
+            if mem > 0:
+                mem_mb = mem / (1024*1024)
+                mem_str = f"{mem_mb:.2f} MB" if mem_mb >= 1 else f"{mem / 1024:.1f} KB"
+            else:
+                mem_str = "—"
+            lines.append(f"| `{sf['class']}` | {sf['count']:,} | {mem_str} |")
 
     # 类层次
     if analysis.get('hierarchy'):
         lines.append("\n### 类层次 Top 类（来自 CLASS_DUMP）\n")
-        lines.append("| 类名 | 实例数（CLASS_DUMP） |")
-        lines.append("|------|---------------------|")
+        lines.append("| 类名 | 实例数 | 内存占用 |")
+        lines.append("|------|--------|----------|")
         for h in analysis['hierarchy'][:20]:
-            lines.append(f"| `{h['name']}` | {h['instances']:,} |")
+            mem = h.get('memory_mb', 0)
+            mem_str = f"{mem:.2f} MB" if mem >= 1 else f"{h.get('memory_bytes', 0) / 1024:.1f} KB"
+            lines.append(f"| `{h['name']}` | {h['instances']:,} | {mem_str} |")
 
     # ── 线程快照 ─────────────────────────────────────────────────────
     lines.append("\n## 线程快照\n")
