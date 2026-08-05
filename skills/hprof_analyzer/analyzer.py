@@ -570,8 +570,34 @@ def _run_star_diver_analysis(con, parquet_dir, result):
     return result
 
 
+# 系统类前缀（不标记为泄漏）
+SYSTEM_PREFIXES = (
+    'java.', 'sun.', 'libcore.', 'dalvik.', 'android.', 'androidx.',
+    'com.android.', 'com.google.', 'kotlin.', 'com.facebook.',
+    'com.squareup.', 'io.reactivex.', 'io.grpc.', 'org.w3c.',
+)
+
+# App 类前缀（可能泄漏）
+APP_PREFIXES = (
+    'com.xingjiabi.', 'com.xmhaihao.', 'com.xmhaibao.',
+    'cn.taqu.', 'hb.', 'com.ushengsheng.',
+)
+
+def is_app_class(class_name: str) -> bool:
+    """判断是否为 App 类。"""
+    return any(class_name.startswith(p) for p in APP_PREFIXES)
+
+def is_system_class(class_name: str) -> bool:
+    """判断是否为系统框架类。"""
+    return any(class_name.startswith(p) for p in SYSTEM_PREFIXES)
+
 def classify_leak_severity(class_name: str, instance_count: int, held_count: int = 0) -> tuple:
-    """根据类名和实例数判断泄漏严重性 (P0-P3)。"""
+    """根据类名和实例数判断泄漏严重性 (P0-P3)。
+    
+    区分 App 类和系统类：
+    - App 类：低阈值，更敏感地检测泄漏
+    - 系统类：高阈值，仅信息性标注
+    """
     suspicious_patterns = [
         ('Activity', 'Activity 泄漏'),
         ('Fragment', 'Fragment 泄漏'),
@@ -584,22 +610,56 @@ def classify_leak_severity(class_name: str, instance_count: int, held_count: int
         ('Manager', '单例持有泄漏'),
         ('Singleton', '单例持有泄漏'),
     ]
-
+    
+    is_app = is_app_class(class_name)
+    is_system = is_system_class(class_name)
+    
+    # App 类：更严格的检测
+    if is_app:
+        for pattern, leak_type in suspicious_patterns:
+            if pattern.lower() in class_name.lower():
+                if instance_count > 100 or held_count > 10:
+                    return 'P0', leak_type
+                elif instance_count > 10 or held_count > 0:
+                    return 'P1', leak_type
+                else:
+                    return 'P2', leak_type
+        
+        # App 类无名模式匹配，按实例数判定
+        if instance_count > 1000 or held_count > 100:
+            return 'P0', 'App 类高实例泄漏'
+        elif instance_count > 100 or held_count > 10:
+            return 'P1', 'App 类值得关注'
+        elif instance_count > 10:
+            return 'P2', 'App 类值得关注'
+        else:
+            return 'P3', '正常范围'
+    
+    # 系统类：仅信息性标注，不标记为泄漏
+    if is_system:
+        if instance_count > 100000:
+            return 'P3', '系统基础设施（信息性）'
+        elif instance_count > 10000:
+            return 'P3', '系统类高实例（信息性）'
+        else:
+            return 'P3', '正常范围'
+    
+    # 其他类（第三方库等）
     for pattern, leak_type in suspicious_patterns:
         if pattern.lower() in class_name.lower():
             if instance_count > 1000 or held_count > 100:
-                return 'P0', leak_type
-            elif instance_count > 100 or held_count > 10:
                 return 'P1', leak_type
-            else:
+            elif instance_count > 100:
                 return 'P2', leak_type
-
+            else:
+                return 'P3', leak_type
+    
     if instance_count > 50000 or held_count > 5000:
-        return 'P0', '潜在内存泄漏'
+        return 'P2', '高实例类（信息性）'
     elif instance_count > 10000 or held_count > 1000:
-        return 'P1', '潜在内存泄漏'
+        return 'P3', '高实例类（信息性）'
     elif instance_count > 1000 or held_count > 100:
-        return 'P2', '值得关注'
+        return 'P3', '值得关注'
     else:
         return 'P3', '正常范围'
 
@@ -739,23 +799,41 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
 
     # 找出可疑泄漏类
     suspicious = []
+    system_info = []
     for cls in analysis.get('top_classes', []):
-        if cls['count'] > 1000:
-            held = 0
-            for item in analysis.get('java_stack_holders', []):
-                if item['name'] == cls['name']:
-                    held = item['count']
-                    break
-            for item in analysis.get('system_class_holders', []):
-                if item['name'] == cls['name']:
-                    held = item['count']
-                    break
-            if held > 0 or cls['count'] > 5000:
-                severity, leak_type = classify_leak_severity(cls['name'], cls['count'], held)
-                suspicious.append({
-                    'name': cls['name'], 'instances': cls['count'],
-                    'held': held, 'severity': severity, 'type': leak_type,
-                })
+        cn = cls['name']
+        cnt = cls['count']
+        is_app = is_app_class(cn)
+        is_sys = is_system_class(cn)
+        
+        held = 0
+        for item in analysis.get('java_stack_holders', []) + analysis.get('system_class_holders', []):
+            if item['name'] == cn:
+                held = max(held, item['count'])
+        
+        severity, leak_type = classify_leak_severity(cn, cnt, held)
+        
+        if is_app and (cnt > 10 or held > 0 or any(p in cn.lower() for p in ['activity', 'fragment', 'manager', 'singleton', 'cache', 'handler'])):
+            suspicious.append({
+                'name': cn, 'instances': cnt, 'held': held,
+                'severity': severity, 'type': leak_type,
+                'memory_mb': cls.get('memory_mb', 0),
+                'memory_bytes': cls.get('memory_bytes', 0),
+            })
+        elif is_sys and cnt > 5000:
+            system_info.append({
+                'name': cn, 'instances': cnt, 'held': held,
+                'type': '系统基础设施',
+                'memory_mb': cls.get('memory_mb', 0),
+                'memory_bytes': cls.get('memory_bytes', 0),
+            })
+        elif not is_sys and cnt > 1000:
+            suspicious.append({
+                'name': cn, 'instances': cnt, 'held': held,
+                'severity': severity, 'type': leak_type,
+                'memory_mb': cls.get('memory_mb', 0),
+                'memory_bytes': cls.get('memory_bytes', 0),
+            })
 
     if suspicious:
         lines.append("### 可疑泄漏类（高实例数 + GC Root 持有）\n")
@@ -904,6 +982,15 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
         total_refs = analysis.get('total_refs', 0)
         lines.append(f"{action_num}. **利用引用链深度排查** — 共 {total_refs:,} 条引用关系可用，可追溯任意对象的引用路径\n")
         action_num += 1
+
+    if system_info:
+        lines.append("\n### 系统类高实例（信息性，非泄漏）\n")
+        lines.append("| 类名 | 实例数 | 内存占用 | 说明 |")
+        lines.append("|------|--------|----------|------|")
+        for s in system_info[:10]:
+            mem = s.get('memory_mb', 0)
+            mem_str = f"{mem:.2f} MB" if mem >= 1 else f"{s.get('memory_bytes', 0) / 1024:.1f} KB"
+            lines.append(f"| `{s['name']}` | {s['instances']:,} | {mem_str} | {s['type']} |")
 
     if suspicious:
         lines.append("\n### 针对可疑类的具体排查建议\n")
