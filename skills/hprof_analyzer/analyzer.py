@@ -514,23 +514,47 @@ def _run_star_diver_analysis(con, parquet_dir, result):
                 if ref not in reachable:
                     reachable.add(ref)
                     queue.append(ref)
-        result['reachable_objects'] = len(reachable)
-        result['unreachable_objects'] = result['total_objects'] - len(reachable)
+        # 修正: 只统计 Instance 对象的可达性 (与 _obj_class_map 口径一致)
+        instance_obj_ids = set(r[0] for r in con.execute(f"SELECT obj_id FROM read_parquet('{map_file}')").fetchall())
+        reachable_instances = reachable & instance_obj_ids
+        unreachable_instances = instance_obj_ids - reachable_instances
+        result['reachable_objects'] = len(reachable_instances)
+        result['unreachable_objects'] = len(unreachable_instances)
+        # 补全对象总数 (Instance + PrimitiveArray + ObjectArray)
+        total_heap_objects = result['total_objects']
+        for suffix in ['_object_arrays.parquet']:
+            arr_file = os.path.join(parquet_dir, suffix)
+            if os.path.isfile(arr_file):
+                total_heap_objects += con.execute(f"SELECT COUNT(*) FROM read_parquet('{arr_file}')").fetchone()[0]
+        for suffix in ['byte', 'char', 'float', 'double', 'byte', 'short', 'int', 'long']:
+            arr_file = os.path.join(parquet_dir, f'_primitive_arrays_{suffix}.parquet')
+            if os.path.isfile(arr_file):
+                total_heap_objects += con.execute(f"SELECT COUNT(*) FROM read_parquet('{arr_file}')").fetchone()[0]
+        result['total_heap_objects'] = total_heap_objects
         
-        # 不可达对象按类分组
+        # 不可达对象按类分组 + 分类标注
         if os.path.isfile(map_file):
-            # 获取所有对象的 obj_id 和 class_name
             all_objs = con.execute(f"SELECT obj_id, class_name, field_data_size FROM read_parquet('{map_file}')").fetchall()
             unreachable_by_class = Counter()
             unreachable_mem = Counter()
+            unreachable_category = Counter()  # temporary / leak / unknown
             for oid, cn, fds in all_objs:
-                if oid not in reachable:
+                if oid not in reachable_instances:
                     unreachable_by_class[cn] += 1
-                    unreachable_mem[cn] += fds + 16  # field_data + object header
+                    unreachable_mem[cn] += fds + 16
+                    # 分类
+                    if is_system_class(cn):
+                        unreachable_category['temporary'] += 1
+                    elif is_app_class(cn):
+                        unreachable_category['leak'] += 1
+                    else:
+                        unreachable_category['unknown'] += 1
             result['unreachable_by_class'] = [
-                {'class': cn, 'count': cnt, 'memory_bytes': unreachable_mem[cn]}
+                {'class': cn, 'count': cnt, 'memory_bytes': unreachable_mem[cn],
+                 'category': 'temporary' if is_system_class(cn) else ('leak' if is_app_class(cn) else 'unknown')}
                 for cn, cnt in unreachable_by_class.most_common(15)
             ]
+            result['unreachable_summary'] = dict(unreachable_category)
         else:
             result['unreachable_by_class'] = []
         # Top retained: 哪些对象被最多其他对象引用
@@ -722,6 +746,8 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
             unreach_mem = total_mem_bytes * unreachable / total_objs
             lines.append(f"| 可达对象内存 | {reach_mem / (1024*1024):.2f} MB ({reachable:,} 对象) |")
             lines.append(f"| 不可达对象内存 | {unreach_mem / (1024*1024):.2f} MB ({unreachable:,} 对象) |")
+    total_heap = analysis.get("total_heap_objects", total_objs)
+    lines.append(f"| 堆对象总数 (含数组) | {total_heap:,} |")
     # 概要中增加线程数
     thread_count = len(analysis.get('threads', []))
     lines.append(f"| 线程快照数 | {thread_count} |")
@@ -968,15 +994,30 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
             unreach_mem = 0
         lines.append(f"{action_num}. **检查不可达对象** — {unreachable:,} 个对象不可达（约 {unreach_mem:.2f} MB），可能需要 GC 回收\n")
         unreachable_classes = analysis.get("unreachable_by_class", [])
+        unreach_summary = analysis.get("unreachable_summary", {})
+        if unreach_summary:
+            temp_cnt = unreach_summary.get('temporary', 0)
+            leak_cnt = unreach_summary.get('leak', 0)
+            unknown_cnt = unreach_summary.get('unknown', 0)
+            lines.append(f"\n   **不可达对象分类:**\n")
+            if temp_cnt > 0:
+                lines.append(f"   - 🟢 系统临时对象（正常）: {temp_cnt:,} 个 — GC 将回收\n")
+            if leak_cnt > 0:
+                lines.append(f"   - 🔴 App 类不可达（潜在泄漏）: {leak_cnt:,} 个 — 需排查\n")
+            if unknown_cnt > 0:
+                lines.append(f"   - 🟡 第三方库不可达（待确认）: {unknown_cnt:,} 个\n")
+            if leak_cnt == 0:
+                lines.append(f"   ✅ 无 App 类不可达对象，App 对象全部可达 — 无内存泄漏迹象\n")
         if unreachable_classes:
             lines.append(f"\n   **不可达对象 Top 5 类:**\n")
-            lines.append(f"   | 类名 | 实例数 | 内存 |")
-            lines.append(f"   |------|--------|------|")
+            lines.append(f"   | 类名 | 实例数 | 内存 | 分类 |")
+            lines.append(f"   |------|--------|------|------|")
             for uc in unreachable_classes[:5]:
                 mem_mb = uc["memory_bytes"] / (1024*1024)
                 mem_str = f"{mem_mb:.2f} MB" if mem_mb >= 1 else f"{uc['memory_bytes'] / 1024:.1f} KB"
-                is_app = is_app_class(uc["class"])
-                lines.append(f"   | `{uc['class']}` {'★' if is_app else ''} | {uc['count']:,} | {mem_str} |")
+                cat = uc.get('category', 'unknown')
+                cat_icon = {'temporary': '🟢临时', 'leak': '🔴泄漏', 'unknown': '🟡待确认'}.get(cat, '🟡')
+                lines.append(f"   | `{uc['class']}` | {uc['count']:,} | {mem_str} | {cat_icon} |")
             lines.append("\n")
         action_num += 1
 
