@@ -504,7 +504,7 @@ def _run_star_diver_analysis(con, parquet_dir, result):
             ref_graph[src].append(dst)
         # BFS from GC roots
         reachable = set()
-        from collections import deque
+        from collections import deque, Counter
         queue = deque(gc_obj_ids)
         for goid in gc_obj_ids:
             reachable.add(goid)
@@ -516,6 +516,23 @@ def _run_star_diver_analysis(con, parquet_dir, result):
                     queue.append(ref)
         result['reachable_objects'] = len(reachable)
         result['unreachable_objects'] = result['total_objects'] - len(reachable)
+        
+        # 不可达对象按类分组
+        if os.path.isfile(map_file):
+            # 获取所有对象的 obj_id 和 class_name
+            all_objs = con.execute(f"SELECT obj_id, class_name, field_data_size FROM read_parquet('{map_file}')").fetchall()
+            unreachable_by_class = Counter()
+            unreachable_mem = Counter()
+            for oid, cn, fds in all_objs:
+                if oid not in reachable:
+                    unreachable_by_class[cn] += 1
+                    unreachable_mem[cn] += fds + 16  # field_data + object header
+            result['unreachable_by_class'] = [
+                {'class': cn, 'count': cnt, 'memory_bytes': unreachable_mem[cn]}
+                for cn, cnt in unreachable_by_class.most_common(15)
+            ]
+        else:
+            result['unreachable_by_class'] = []
         # Top retained: 哪些对象被最多其他对象引用
         from collections import Counter as _Counter2
         in_degree = _Counter2()
@@ -950,6 +967,17 @@ def generate_report(analysis: Dict[str, Any], output_path: str):
         else:
             unreach_mem = 0
         lines.append(f"{action_num}. **检查不可达对象** — {unreachable:,} 个对象不可达（约 {unreach_mem:.2f} MB），可能需要 GC 回收\n")
+        unreachable_classes = analysis.get("unreachable_by_class", [])
+        if unreachable_classes:
+            lines.append(f"\n   **不可达对象 Top 5 类:**\n")
+            lines.append(f"   | 类名 | 实例数 | 内存 |")
+            lines.append(f"   |------|--------|------|")
+            for uc in unreachable_classes[:5]:
+                mem_mb = uc["memory_bytes"] / (1024*1024)
+                mem_str = f"{mem_mb:.2f} MB" if mem_mb >= 1 else f"{uc['memory_bytes'] / 1024:.1f} KB"
+                is_app = is_app_class(uc["class"])
+                lines.append(f"   | `{uc['class']}` {'★' if is_app else ''} | {uc['count']:,} | {mem_str} |")
+            lines.append("\n")
         action_num += 1
 
     # 3. 引用链中的 App 类

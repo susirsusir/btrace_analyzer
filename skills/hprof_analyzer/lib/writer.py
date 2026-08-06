@@ -304,16 +304,38 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
         table = pa.Table.from_pylist(oa_rows)
         pq.write_table(table, os.path.join(output_dir, '_object_arrays.parquet'), compression='snappy')
 
-    # 4.5 Write _object_refs.parquet (field reference chain)
+    # 4.5 Write _object_refs.parquet (完整引用图: Instance fields + ObjectArray elements + Static fields)
+    all_src = []
+    all_dst = []
+    
+    # Instance field references
     if hasattr(parser, 'object_refs') and parser.object_refs:
-        ref_obj_ids = []
-        src_obj_ids = []
         for r in parser.object_refs:
-            src_obj_ids.append(r.get('obj_id', 0))
-            ref_obj_ids.append(r.get('ref_obj_id', 0))
+            all_src.append(r.get('obj_id', 0))
+            all_dst.append(r.get('ref_obj_id', 0))
+    
+    # ObjectArray element references (array obj_id -> element obj_id)
+    for oa in parser.object_arrays:
+        oa_id = oa.get('obj_id', 0)
+        for elem_id in oa.get('elements', []):
+            if elem_id > 0:
+                all_src.append(oa_id)
+                all_dst.append(elem_id)
+    
+    # Static field references (class_obj_id -> ref_id)
+    for sf in parser.static_fields:
+        ref_id = sf.get('ref_id', 0)
+        if ref_id > 0:
+            class_serial = sf.get('class_serial', 0)
+            class_obj_id = parser.class_obj_ids.get(class_serial, 0)
+            if class_obj_id > 0:
+                all_src.append(class_obj_id)
+                all_dst.append(ref_id)
+    
+    if all_src:
         table = pa.Table.from_arrays([
-            pa.array(src_obj_ids, type=pa.uint64()),
-            pa.array(ref_obj_ids, type=pa.uint64()),
+            pa.array(all_src, type=pa.uint64()),
+            pa.array(all_dst, type=pa.uint64()),
         ], names=['obj_id', 'ref_obj_id'])
         pq.write_table(table, os.path.join(output_dir, '_object_refs.parquet'), compression='snappy')
 
@@ -337,7 +359,7 @@ def write_standard_parser_data(parser, output_dir: str) -> dict:
         'object_arrays': len(parser.object_arrays),
         'primitive_arrays': len(parser.primitive_arrays),
         'strings': len(parser.strings),
-        'object_refs': 0,
+        'object_refs': len(all_src) if all_src else 0,
     }
     return counts
 
